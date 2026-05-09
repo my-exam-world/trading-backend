@@ -21,9 +21,9 @@ export async function getTradingViewHistory(symbol, timeframe = 'D', bars = 5000
       if (!settled) {
         settled = true;
         try { client.end(); } catch (_) { }
-        reject(new Error('TradingView WebSocket timed out after 15s'));
+        reject(new Error('TradingView WebSocket timed out after 30s'));
       }
-    }, 15000);
+    }, 30000);
 
     let client;
     try {
