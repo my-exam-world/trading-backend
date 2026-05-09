@@ -11,6 +11,8 @@ import { SymbolMapper } from '../utils/symbolMapper.js';
 import { IndicatorRegistry } from '../indicators/index.js';
 import { AutomationService } from '../services/automationService.js';
 
+const scanCache = new Map();
+const CACHE_TTL = 60000; // 1 minute
 
 export class AnalysisController {
   /**
@@ -21,6 +23,12 @@ export class AnalysisController {
 
     if (!symbol || !exchange || !timeframe) {
       return res.status(400).json({ error: 'Missing required parameters: symbol, exchange, timeframe' });
+    }
+
+    const cacheKey = `${exchange}:${symbol}:${timeframe}`;
+    const cached = scanCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return res.json(cached.data);
     }
 
     try {
@@ -79,7 +87,7 @@ export class AnalysisController {
       const fibonacci = FibonacciService.runAnalysis(rawIndicators);
       const multiAgent = MultiAgentService.runMultiAgentAnalysis(rawIndicators, stockScore, sentiment.sentiment_score);
 
-      return res.json({
+      const result = {
         symbol: fullSymbol,
         exchange: String(exchange),
         timeframe: tvTimeframe,
