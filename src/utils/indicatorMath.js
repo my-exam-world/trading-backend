@@ -5,6 +5,7 @@
  */
 
 // --- UTILITIES ---
+import { BASURI_WEIGHTS, TOTAL_BASURI_WEIGHT } from './basuriWeights.js';
 
 /**
  * Simple Moving Average (SMA)
@@ -364,9 +365,9 @@ export function calculateUltimateOscillator(d, p1 = 7, p2 = 14, p3 = 28) {
   if (d.length <= p3) return [];
   const res = [];
   for (let i = 1; i < d.length; i++) {
-    const tl = Math.min(d[i].low, d[i-1].close);
+    const tl = Math.min(d[i].low, d[i - 1].close);
     const bp = d[i].close - tl;
-    const tr = Math.max(d[i].high, d[i-1].close) - tl;
+    const tr = Math.max(d[i].high, d[i - 1].close) - tl;
     res.push({ time: d[i].time, bp, tr });
   }
   const calcAvg = (p) => {
@@ -413,7 +414,7 @@ export function calculateWMA(d, p) {
   for (let i = p - 1; i < d.length; i++) {
     let sum = 0;
     for (let j = 0; j < p; j++) {
-      const val = (d[i-j].close || d[i-j].value || 0);
+      const val = (d[i - j].close || d[i - j].value || 0);
       sum += val * (p - j);
     }
     res.push({ time: d[i].time, value: sum / weightSum });
@@ -441,6 +442,76 @@ export function calculateVWMA(d, p = 20) {
     });
   }
   return res;
+}
+
+/**
+ * Money Flow Index (MFI)
+ */
+export function calculateMFI(d, p = 14) {
+  if (d.length <= p) return [];
+  const mfi = [];
+  const typPrice = d.map(x => (x.high + x.low + x.close) / 3);
+  const rawMF = typPrice.map((tp, i) => tp * d[i].volume);
+
+  for (let i = p; i < d.length; i++) {
+    let posMF = 0, negMF = 0;
+    for (let j = 0; j < p; j++) {
+      const curr = typPrice[i - j], prev = typPrice[i - j - 1];
+      if (curr > prev) posMF += rawMF[i - j];
+      else if (curr < prev) negMF += rawMF[i - j];
+    }
+    const mfr = negMF === 0 ? 100 : posMF / negMF;
+    mfi.push({ time: d[i].time, value: 100 - (100 / (1 + mfr)) });
+  }
+  return mfi;
+}
+
+/**
+ * Chaikin Money Flow (CMF)
+ */
+export function calculateCMF(d, p = 21) {
+  if (d.length <= p) return [];
+  const cmf = [];
+  for (let i = p - 1; i < d.length; i++) {
+    const slice = d.slice(i - p + 1, i + 1);
+    let mfvSum = 0, volSum = 0;
+    slice.forEach(x => {
+      const range = x.high - x.low;
+      const mfm = range === 0 ? 0 : ((x.close - x.low) - (x.high - x.close)) / range;
+      mfvSum += mfm * x.volume;
+      volSum += x.volume;
+    });
+    cmf.push({ time: d[i].time, value: volSum === 0 ? 0 : mfvSum / volSum });
+  }
+  return cmf;
+}
+
+/**
+ * Volume Weighted Average Price (VWAP)
+ */
+export function calculateVWAP(d) {
+  let cumTPV = 0, cumVol = 0;
+  return d.map(x => {
+    const tp = (x.high + x.low + x.close) / 3;
+    cumTPV += tp * (x.volume || 0);
+    cumVol += (x.volume || 0);
+    return { time: x.time, value: cumVol === 0 ? tp : cumTPV / cumVol };
+  });
+}
+
+/**
+ * Fibonacci Levels (Dynamic Range)
+ */
+export function calculateFibLevelsForPrice(price, high, low) {
+  const diff = high - low;
+  if (diff === 0) return { f236: 0, f382: 0, f500: 0, f618: 0, f786: 0 };
+  return {
+    f236: high - diff * 0.236,
+    f382: high - diff * 0.382,
+    f500: high - diff * 0.500,
+    f618: high - diff * 0.618,
+    f786: high - diff * 0.786
+  };
 }
 
 // --- PIVOTS ---
@@ -490,12 +561,12 @@ export function calculateGCS(d, config = {}) {
   }
   const uC = [], lC = [], mU = [], mL = [];
   for (let i = 0; i < d.length; i++) {
-    if (i < len - 1) { uC.push({time: d[i].time, value: NaN}); lC.push({time: d[i].time, value: NaN}); mU.push({time: d[i].time, value: NaN}); mL.push({time: d[i].time, value: NaN}); continue; }
+    if (i < len - 1) { uC.push({ time: d[i].time, value: NaN }); lC.push({ time: d[i].time, value: NaN }); mU.push({ time: d[i].time, value: NaN }); mL.push({ time: d[i].time, value: NaN }); continue; }
     const sd = Math.sqrt(residuals.slice(i - len + 1, i + 1).reduce((s, x) => s + x * x, 0) / len);
-    uC.push({time: d[i].time, value: gMA[i].value + sd * mult}); 
-    lC.push({time: d[i].time, value: gMA[i].value - sd * mult}); 
-    mU.push({time: d[i].time, value: gMA[i].value + sd * mult * 0.5}); 
-    mL.push({time: d[i].time, value: gMA[i].value - sd * mult * 0.5});
+    uC.push({ time: d[i].time, value: gMA[i].value + sd * mult });
+    lC.push({ time: d[i].time, value: gMA[i].value - sd * mult });
+    mU.push({ time: d[i].time, value: gMA[i].value + sd * mult * 0.5 });
+    mL.push({ time: d[i].time, value: gMA[i].value - sd * mult * 0.5 });
   }
   const adx = calculateADX(d, adxLen), eF = calculateEMA(d, emaFast), eS = calculateEMA(d, emaSlow), zS = calculateZScore(d, zLen), vM = calculateVolumeSMA(d, 20);
   const aMap = new Map(adx.map(x => [x.time, x])), fMap = new Map(eF.map(x => [x.time, x.value])), sMap = new Map(eS.map(x => [x.time, x.value])), zMap = new Map(zS.map(x => [x.time, x.value])), vMap = new Map(vM.map(x => [x.time, x.value]));
@@ -558,7 +629,7 @@ export function calculateUTBot(d, sensitivity = 2, atrPeriod = 1) {
   if (d.length < 20) return { markers: [], trailingStop: [] };
   const atr = calculateATR(d, atrPeriod);
   const aMap = new Map(atr.map(x => [x.time, x.value]));
-  
+
   const tsData = [];
   const markers = [];
   let prevTrailingStop = d[0].close;
@@ -566,20 +637,20 @@ export function calculateUTBot(d, sensitivity = 2, atrPeriod = 1) {
   let position = 0;
 
   for (let i = 1; i < d.length; i++) {
-      const t = d[i].time, price = d[i].close, xATR = aMap.get(t) || 0, nLoss = sensitivity * xATR;
-      let currentStop = 0;
-      if (price > prevTrailingStop && prevPrice > prevTrailingStop) currentStop = Math.max(prevTrailingStop, price - nLoss);
-      else if (price < prevTrailingStop && prevPrice < prevTrailingStop) currentStop = Math.min(prevTrailingStop, price + nLoss);
-      else if (price > prevTrailingStop) currentStop = price - nLoss;
-      else currentStop = price + nLoss;
+    const t = d[i].time, price = d[i].close, xATR = aMap.get(t) || 0, nLoss = sensitivity * xATR;
+    let currentStop = 0;
+    if (price > prevTrailingStop && prevPrice > prevTrailingStop) currentStop = Math.max(prevTrailingStop, price - nLoss);
+    else if (price < prevTrailingStop && prevPrice < prevTrailingStop) currentStop = Math.min(prevTrailingStop, price + nLoss);
+    else if (price > prevTrailingStop) currentStop = price - nLoss;
+    else currentStop = price + nLoss;
 
-      tsData.push({ time: t, value: currentStop });
-      if (price > currentStop && prevPrice <= prevTrailingStop) {
-          if (position !== 1) { markers.push({ time: t, type: 'UT_BUY', text: 'UT BUY' }); position = 1; }
-      } else if (price < currentStop && prevPrice >= prevTrailingStop) {
-          if (position !== -1) { markers.push({ time: t, type: 'UT_SELL', text: 'UT SELL' }); position = -1; }
-      }
-      prevTrailingStop = currentStop; prevPrice = price;
+    tsData.push({ time: t, value: currentStop });
+    if (price > currentStop && prevPrice <= prevTrailingStop) {
+      if (position !== 1) { markers.push({ time: t, type: 'UT_BUY', text: 'UT BUY' }); position = 1; }
+    } else if (price < currentStop && prevPrice >= prevTrailingStop) {
+      if (position !== -1) { markers.push({ time: t, type: 'UT_SELL', text: 'UT SELL' }); position = -1; }
+    }
+    prevTrailingStop = currentStop; prevPrice = price;
   }
   return { markers, trailingStop: tsData };
 }
@@ -597,35 +668,35 @@ export function calculateChandelierExit(d, p = 22, mult = 3) {
   let prevShortStop = null;
 
   for (let i = 0; i < d.length; i++) {
-      const time = d[i].time;
-      const currentAtr = aMap.get(time);
-      if (currentAtr === undefined) continue;
+    const time = d[i].time;
+    const currentAtr = aMap.get(time);
+    if (currentAtr === undefined) continue;
 
-      const slice = d.slice(Math.max(0, i - p + 1), i + 1);
-      let longStop = Math.max(...slice.map(x => x.close)) - currentAtr * mult;
-      let shortStop = Math.min(...slice.map(x => x.close)) + currentAtr * mult;
-      const longStopPrev = prevLongStop ?? longStop;
-      const shortStopPrev = prevShortStop ?? shortStop;
+    const slice = d.slice(Math.max(0, i - p + 1), i + 1);
+    let longStop = Math.max(...slice.map(x => x.close)) - currentAtr * mult;
+    let shortStop = Math.min(...slice.map(x => x.close)) + currentAtr * mult;
+    const longStopPrev = prevLongStop ?? longStop;
+    const shortStopPrev = prevShortStop ?? shortStop;
 
-      if (i > 0) {
-          longStop = d[i - 1].close > longStopPrev ? Math.max(longStop, longStopPrev) : longStop;
-          shortStop = d[i - 1].close < shortStopPrev ? Math.min(shortStop, shortStopPrev) : shortStop;
-      }
+    if (i > 0) {
+      longStop = d[i - 1].close > longStopPrev ? Math.max(longStop, longStopPrev) : longStop;
+      shortStop = d[i - 1].close < shortStopPrev ? Math.min(shortStop, shortStopPrev) : shortStop;
+    }
 
-      const prevDir = dir;
-      dir = d[i].close > shortStopPrev ? 1 : d[i].close < longStopPrev ? -1 : dir;
+    const prevDir = dir;
+    dir = d[i].close > shortStopPrev ? 1 : d[i].close < longStopPrev ? -1 : dir;
 
-      long.push({ time, value: longStop });
-      short.push({ time, value: shortStop });
+    long.push({ time, value: longStop });
+    short.push({ time, value: shortStop });
 
-      if (dir === 1 && prevDir === -1) {
-           markers.push({ time, type: 'CHANDELIER_BUY', text: 'CH BUY' });
-      } else if (dir === -1 && prevDir === 1) {
-           markers.push({ time, type: 'CHANDELIER_SELL', text: 'CH SELL' });
-      }
+    if (dir === 1 && prevDir === -1) {
+      markers.push({ time, type: 'CHANDELIER_BUY', text: 'CH BUY' });
+    } else if (dir === -1 && prevDir === 1) {
+      markers.push({ time, type: 'CHANDELIER_SELL', text: 'CH SELL' });
+    }
 
-      prevLongStop = longStop;
-      prevShortStop = shortStop;
+    prevLongStop = longStop;
+    prevShortStop = shortStop;
   }
   return { long, short, markers };
 }
@@ -782,14 +853,14 @@ function calculateBasuriTechnicalRatings(d) {
         val: Number.isFinite(aoNow) ? aoNow.toFixed(4) : '--',
         rating: Number.isFinite(aoNow) && Number.isFinite(aoPrev) && Number.isFinite(aoPrev2)
           ? (aoNow > 0 && aoPrev <= 0
-              ? 1
-              : aoNow < 0 && aoPrev >= 0
-                ? -1
-                : aoNow > 0 && aoPrev > 0 && aoNow > aoPrev && aoPrev < aoPrev2
-                  ? 1
-                  : aoNow < 0 && aoPrev < 0 && aoNow < aoPrev && aoPrev > aoPrev2
-                    ? -1
-                    : 0)
+            ? 1
+            : aoNow < 0 && aoPrev >= 0
+              ? -1
+              : aoNow > 0 && aoPrev > 0 && aoNow > aoPrev && aoPrev < aoPrev2
+                ? 1
+                : aoNow < 0 && aoPrev < 0 && aoNow < aoPrev && aoPrev > aoPrev2
+                  ? -1
+                  : 0)
           : 0,
       },
       {
@@ -807,10 +878,10 @@ function calculateBasuriTechnicalRatings(d) {
         val: Number.isFinite(stochRsiKNow) ? stochRsiKNow.toFixed(4) : '--',
         rating: Number.isFinite(stochRsiKNow) && Number.isFinite(stochRsiDNow) && Number.isFinite(rsiNow)
           ? (rsiNow < 50 && stochRsiKNow < 20 && stochRsiDNow < 20 && stochRsiKNow > stochRsiDNow
-              ? 1
-              : rsiNow > 50 && stochRsiKNow > 80 && stochRsiDNow > 80 && stochRsiKNow < stochRsiDNow
-                ? -1
-                : 0)
+            ? 1
+            : rsiNow > 50 && stochRsiKNow > 80 && stochRsiDNow > 80 && stochRsiKNow < stochRsiDNow
+              ? -1
+              : 0)
           : 0,
       },
       {
@@ -825,10 +896,10 @@ function calculateBasuriTechnicalRatings(d) {
         val: Number.isFinite(bullBearNow?.bull) ? bullBearNow.bull.toFixed(2) : '--',
         rating: bullBearNow && bullBearPrev && Number.isFinite(ema13Now) && Number.isFinite(ema13Prev)
           ? (ema13Now > ema13Prev && bullBearNow.bear < 0 && bullBearNow.bear > bullBearPrev.bear
-              ? 1
-              : ema13Now < ema13Prev && bullBearNow.bull > 0 && bullBearNow.bull < bullBearPrev.bull
-                ? -1
-                : 0)
+            ? 1
+            : ema13Now < ema13Prev && bullBearNow.bull > 0 && bullBearNow.bull < bullBearPrev.bull
+              ? -1
+              : 0)
           : 0,
       },
       {
@@ -862,16 +933,16 @@ function calculateBasuriTechnicalRatings(d) {
         val: ichimokuNow ? `${ichimokuNow.conversion.toFixed(2)} / ${ichimokuNow.base.toFixed(2)}` : '--',
         rating: ichimokuNow
           ? (ichimokuNow.spanA > ichimokuNow.spanB
-              && ichimokuNow.base > ichimokuNow.spanA
-              && ichimokuNow.conversion > ichimokuNow.base
-              && close > ichimokuNow.conversion
-                ? 1
-                : ichimokuNow.spanA < ichimokuNow.spanB
-                  && ichimokuNow.base < ichimokuNow.spanA
-                  && ichimokuNow.conversion < ichimokuNow.base
-                  && close < ichimokuNow.conversion
-                    ? -1
-                    : 0)
+            && ichimokuNow.base > ichimokuNow.spanA
+            && ichimokuNow.conversion > ichimokuNow.base
+            && close > ichimokuNow.conversion
+            ? 1
+            : ichimokuNow.spanA < ichimokuNow.spanB
+              && ichimokuNow.base < ichimokuNow.spanA
+              && ichimokuNow.conversion < ichimokuNow.base
+              && close < ichimokuNow.conversion
+              ? -1
+              : 0)
           : 0,
       },
     ];
@@ -921,182 +992,157 @@ function calculateBasuriTechnicalRatings(d) {
 }
 
 /**
- * BASURI Neural Master (Neural 26 Supreme Consensus)
- * 100% Parity with TradingView Technical Analysis (11 Oscillators + 15 Moving Averages)
+ * BASURI Neural Master (Neural 31 Supreme Consensus)
+ * Updated to use User-Defined 31-indicator Priority System.
  */
-export function calculateBasuri(d) {
+export function calculateBasuri(d, sentimentScore = 0) {
   if (d.length < 200) return { markers: [], lastStats: null };
-  
-  // --- PRE-CALCULATE ALL INDICATORS FOR HISTORY (for markers) ---
-  // To ensure the markers appear at the TRUE entry point, we loop through the full history
-  // starting after the initial 200 bars needed for stabilization.
-  const markers = [];
-  let position = 0;
 
-  // We need the full arrays to use .pop() or access by index later for lastStats
+  const weights = BASURI_WEIGHTS;
+  const totalWeight = TOTAL_BASURI_WEIGHT;
+
+  // --- PRE-CALCULATE ALL INDICATORS ---
+  const ema14All = calculateEMA(d, 14);
+  const ema26All = calculateEMA(d, 26);
+  const ema200All = calculateEMA(d, 200);
   const rsiAll = calculateRSI(d, 14);
+  const macdAll = calculateMACD(d);
   const stochAll = calculateStochastic(d, 14, 3, 3);
   const cciAll = calculateCCI(d, 20);
+  const mfiAll = calculateMFI(d, 14);
+  const bbAll = calculateBollingerBands(d, 20, 2);
+  const atrAll = calculateATR(d, 14);
   const adxAll = calculateADX(d, 14);
-  const aoAll = calculateAwesomeOscillator(d);
-  const momAll = calculateMomentum(d, 10);
-  const macdAll = calculateMACD(d);
-  const stochRsiAll = calculateStochRSI(d, 14, 3, 3);
-  const williamsRAll = calculateWilliamsR(d, 14);
-  const bbpAll = calculateBullBearPower(d, 13);
-  const uoAll = calculateUltimateOscillator(d);
-  const emasAll = [5, 10, 20, 30, 50, 100, 200].map(p => ({ p, data: calculateEMA(d, p) }));
-  const smasAll = [5, 10, 20, 30, 50, 100, 200].map(p => ({ p, data: calculateSMA(d, p) }));
-  const hmaAll = calculateHMA(d, 9);
+  const obvAll = calculateOBV(d);
+  const cmfAll = calculateCMF(d, 21);
+  const vwapAll = calculateVWAP(d);
+  const volSmaAll = calculateVolumeSMA(d, 20);
 
   // Maps for fast lookup
+  const e14Map = new Map(ema14All.map(x => [x.time, x.value]));
+  const e26Map = new Map(ema26All.map(x => [x.time, x.value]));
+  const e200Map = new Map(ema200All.map(x => [x.time, x.value]));
   const rMap = new Map(rsiAll.map(x => [x.time, x.value]));
+  const mlMap = new Map(macdAll.macdLine.map(x => [x.time, x.value]));
+  const msMap = new Map(macdAll.signalLine.map(x => [x.time, x.value]));
+  const mhMap = new Map(macdAll.histogram.map(x => [x.time, x.value]));
   const skMap = new Map(stochAll.k.map(x => [x.time, x.value]));
   const sdMap = new Map(stochAll.d.map(x => [x.time, x.value]));
   const cMap = new Map(cciAll.map(x => [x.time, x.value]));
-  const aMap = new Map(adxAll.map(x => [x.time, x]));
-  const aoMap = new Map(aoAll.map(x => [x.time, x.value]));
-  const moMap = new Map(momAll.map(x => [x.time, x.value]));
-  const mhMap = new Map(macdAll.histogram.map(x => [x.time, x.value]));
-  const srMap = new Map(stochRsiAll.k.map(x => [x.time, x.value]));
-  const wrMap = new Map(williamsRAll.map(x => [x.time, x.value]));
-  const bbMap = new Map(bbpAll.map(x => [x.time, x]));
-  const uMap = new Map(uoAll.map(x => [x.time, x.value]));
-  const eMaps = emasAll.map(e => ({ p: e.p, map: new Map(e.data.map(x => [x.time, x.value])) }));
-  const sMaps = smasAll.map(s => ({ p: s.p, map: new Map(s.data.map(x => [x.time, x.value])) }));
-  const hMap = new Map(hmaAll.map(x => [x.time, x.value]));
+  const mfMap = new Map(mfiAll.map(x => [x.time, x.value]));
+  const bbMap = new Map(bbAll.map(x => [x.time, x]));
+  const atMap = new Map(atrAll.map(x => [x.time, x.value]));
+  const axMap = new Map(adxAll.map(x => [x.time, x]));
+  const obMap = new Map(obvAll.map(x => [x.time, x.value]));
+  const cmMap = new Map(cmfAll.map(x => [x.time, x.value]));
+  const vwMap = new Map(vwapAll.map(x => [x.time, x.value]));
+  const vsMap = new Map(volSmaAll.map(x => [x.time, x.value]));
+
+  const markers = [];
+  let position = 0;
 
   for (let i = 200; i < d.length; i++) {
-    const ct = d[i].time, close = d[i].close;
+    const ct = d[i].time, close = d[i].close, vol = d[i].volume;
     let b = 0, s = 0;
 
-    // RSI
-    const r = rMap.get(ct) || 50;
-    if (r < 30) b++; else if (r > 70) s++;
-    // Stoch
+    // 1-3. EMAs with 0.1% Neutral Buffer
+    const e14 = e14Map.get(ct); if (e14) { if (close > e14 * 1.001) b += weights.EMA14; else if (close < e14 * 0.999) s += weights.EMA14; }
+    const e26 = e26Map.get(ct); if (e26) { if (close > e26 * 1.001) b += weights.EMA26; else if (close < e26 * 0.999) s += weights.EMA26; }
+    const e200 = e200Map.get(ct); if (e200) { if (close > e200 * 1.001) b += weights.EMA200; else if (close < e200 * 0.999) s += weights.EMA200; }
+
+    // 4. RSI (Selective)
+    const r = rMap.get(ct) || 50; if (r < 30) b += weights.RSI; else if (r > 70) s += weights.RSI;
+
+    // 5-7. MACD (Sensitive)
+    const ml = mlMap.get(ct) || 0, ms = msMap.get(ct) || 0, mh = mhMap.get(ct) || 0;
+    if (ml > 0) b += weights.MACD_LINE; else if (ml < 0) s += weights.MACD_LINE;
+    if (ms > 0) b += weights.MACD_SIGNAL; else if (ms < 0) s += weights.MACD_SIGNAL;
+    const hBuf = close * 0.0001;
+    if (mh > hBuf) b += weights.MACD_HIST; else if (mh < -hBuf) s += weights.MACD_HIST;
+
+    // 8-9. Stoch (Selective)
     const sk = skMap.get(ct) || 50, sd = sdMap.get(ct) || 50;
-    if (sk < 20 && sk > sd) b++; else if (sk > 80 && sk < sd) s++;
-    // CCI
-    const cc = cMap.get(ct) || 0;
-    if (cc < -100) b++; else if (cc > 100) s++;
-    // ADX
-    const ax = aMap.get(ct);
-    if (ax?.adx > 25 && ax?.diP > ax?.diN) b++; else if (ax?.adx > 25 && ax?.diN > ax?.diP) s++;
-    // AO
-    if ((aoMap.get(ct) || 0) > 0) b++; else if ((aoMap.get(ct) || 0) < 0) s++;
-    // Mom
-    if ((moMap.get(ct) || 0) > 0) b++; else if ((moMap.get(ct) || 0) < 0) s++;
-    // MACD
-    if ((mhMap.get(ct) || 0) > 0) b++; else if ((mhMap.get(ct) || 0) < 0) s++;
-    // Stoch RSI
-    if ((srMap.get(ct) || 0.5) < 0.2) b++; else if ((srMap.get(ct) || 0.5) > 0.8) s++;
-    // Williams R
-    if ((wrMap.get(ct) || -50) < -80) b++; else if ((wrMap.get(ct) || -50) > -20) s++;
-    // BBP
-    const bp = bbMap.get(ct);
-    if (bp?.bull > 0) b++; else if (bp?.bear < 0) s++;
-    // UO
-    if ((uMap.get(ct) || 50) < 30) b++; else if ((uMap.get(ct) || 50) > 70) s++;
+    if (sk < 20) b += weights.STOCH_K; else if (sk > 80) s += weights.STOCH_K;
+    if (sd < 20) b += weights.STOCH_D; else if (sd > 80) s += weights.STOCH_D;
 
-    // MAs
-    eMaps.forEach(m => { 
-      const ev = m.map.get(ct);
-      if (ev !== undefined) { if (close > ev) b++; else s++; }
-    });
-    sMaps.forEach(m => { 
-      const sv = m.map.get(ct);
-      if (sv !== undefined) { if (close > sv) b++; else s++; }
-    });
-    const hv = hMap.get(ct);
-    if (hv !== undefined) { if (close > hv) b++; else s++; }
+    // 10. CCI (Selective)
+    const cc = cMap.get(ct) || 0; if (cc > 100) s += weights.CCI; else if (cc < -100) b += weights.CCI;
 
-    if (b >= 14 && position !== 1) {
-      markers.push({ time: ct, type: 'BASURI_BUY', text: '🚀 BASURI 26 BUY' });
+    // 11. MFI (Selective)
+    const mfi = mfMap.get(ct) || 50; if (mfi < 20) b += weights.MFI; else if (mfi > 80) s += weights.MFI;
+
+    // 12-14. Bollinger (Selective)
+    const bb = bbMap.get(ct);
+    if (bb) {
+      if (close > bb.upper) s += weights.BB_UPPER; else if (close < bb.lower) b += weights.BB_LOWER;
+      if (close > bb.basis * 1.0005) b += weights.BB_MIDDLE; else if (close < bb.basis * 0.9995) s += weights.BB_MIDDLE;
+    }
+
+    // 16. ADX (Selective)
+    const adx = axMap.get(ct);
+    if (adx && adx.adx > 25) { if (adx.diP > adx.diN) b += weights.ADX; else if (adx.diN > adx.diP) s += weights.ADX; }
+
+    // 17-18. OBV/CMF
+    const obv = obMap.get(ct) || 0, prevObv = obMap.get(d[i - 1]?.time) || 0;
+    if (obv > prevObv) b += weights.OBV; else if (obv < prevObv) s += weights.OBV;
+    const cm = cmMap.get(ct) || 0; if (cm > 0.05) b += weights.CMF; else if (cm < -0.05) s += weights.CMF;
+
+    // 19. Volume Spike
+    const vs = vsMap.get(ct) || 0;
+    if (vol > vs * 2 && close > (d[i - 1]?.close || close)) b += weights.VOL_SPIKE;
+
+    // 30. VWAP with 0.1% Buffer
+    const vwap = vwMap.get(ct); if (vwap) { if (close > vwap * 1.001) b += weights.VWAP; else if (close < vwap * 0.999) s += weights.VWAP; }
+
+    // 31. Sentiment
+    if (sentimentScore > 10) b += weights.FEAR_GREED; else if (sentimentScore < -10) s += weights.FEAR_GREED;
+
+    const bPct = (b / totalWeight) * 100;
+    const sPct = (s / totalWeight) * 100;
+
+    // STRICT THRESHOLD: 55%
+    if (bPct > 55 && position !== 1) {
+      markers.push({ time: ct, type: 'BASURI_BUY', text: `🚀 BASURI 31 BUY (${bPct.toFixed(0)}%)` });
       position = 1;
-    } else if (s >= 14 && position !== -1) {
-      markers.push({ time: ct, type: 'BASURI_SELL', text: '❄️ BASURI 26 SELL' });
+    } else if (sPct > 55 && position !== -1) {
+      markers.push({ time: ct, type: 'BASURI_SELL', text: `❄️ BASURI 31 SELL (${sPct.toFixed(0)}%)` });
       position = -1;
-    } else if (b < 14 && s < 14) {
+    } else if (bPct <= 52 && sPct <= 52) {
       position = 0;
     }
   }
 
-  // --- LATEST STATS (for the very last candle) ---
+  // --- LATEST STATS (Final Candle) ---
   const lastIdx = d.length - 1;
-  const lastTime = d[lastIdx].time;
-  const lastClose = d[lastIdx].close;
-  
-  let oscBuy = 0, oscSell = 0, oscNeut = 0;
-  const lastRsi = rMap.get(lastTime) || 50;
-  if (lastRsi < 30) oscBuy++; else if (lastRsi > 70) oscSell++; else oscNeut++;
-  
-  const lastSk = skMap.get(lastTime) || 50, lastSd = sdMap.get(lastTime) || 50;
-  if (lastSk < 20 && lastSk > lastSd) oscBuy++; else if (lastSk > 80 && lastSk < lastSd) oscSell++; else oscNeut++;
-  
-  const lastCc = cMap.get(lastTime) || 0;
-  if (lastCc < -100) oscBuy++; else if (lastCc > 100) oscSell++; else oscNeut++;
-  
-  const lastAx = aMap.get(lastTime);
-  if (lastAx?.adx > 25 && lastAx?.diP > lastAx?.diN) oscBuy++; else if (lastAx?.adx > 25 && lastAx?.diN > lastAx?.diP) oscSell++; else oscNeut++;
-  
-  const lastAo = aoMap.get(lastTime) || 0;
-  if (lastAo > 0) oscBuy++; else if (lastAo < 0) oscSell++; else oscNeut++;
-
-  const lastMo = moMap.get(lastTime) || 0;
-  if (lastMo > 0) oscBuy++; else if (lastMo < 0) oscSell++; else oscNeut++;
-
-  const lastMh = mhMap.get(lastTime) || 0;
-  if (lastMh > 0) oscBuy++; else if (lastMh < 0) oscSell++; else oscNeut++;
-
-  const lastSr = srMap.get(lastTime) || 0.5;
-  if (lastSr < 0.2) oscBuy++; else if (lastSr > 0.8) oscSell++; else oscNeut++;
-
-  const lastWr = wrMap.get(lastTime) || -50;
-  if (lastWr < -80) oscBuy++; else if (lastWr > -20) oscSell++; else oscNeut++;
-
-  const lastBp = bbMap.get(lastTime);
-  if (lastBp?.bull > 0) oscBuy++; else if (lastBp?.bear < 0) oscSell++; else oscNeut++;
-
-  const lastUo = uMap.get(lastTime) || 50;
-  if (lastUo < 30) oscBuy++; else if (lastUo > 70) oscSell++; else oscNeut++;
-
-  let maBuy = 0, maSell = 0;
-  eMaps.forEach(m => { if (lastClose > (m.map.get(lastTime) || lastClose)) maBuy++; else maSell++; });
-  sMaps.forEach(m => { if (lastClose > (m.map.get(lastTime) || lastClose)) maBuy++; else maSell++; });
-  if (lastClose > (hMap.get(lastTime) || lastClose)) maBuy++; else maSell++;
-
-  const totalBuy = oscBuy + maBuy;
-  const totalSell = oscSell + maSell;
-
-  const list = [
-    { name: 'RSI (14)', val: lastRsi.toFixed(2), stat: lastRsi < 30 ? 'BUY' : lastRsi > 70 ? 'SELL' : 'NEUTRAL' },
-    { name: 'Stoch (14,3,3)', val: lastSk.toFixed(2), stat: lastSk < 20 && lastSk > lastSd ? 'BUY' : lastSk > 80 && lastSk < lastSd ? 'SELL' : 'NEUTRAL' },
-    { name: 'CCI (20)', val: lastCc.toFixed(2), stat: lastCc < -100 ? 'BUY' : lastCc > 100 ? 'SELL' : 'NEUTRAL' },
-    { name: 'ADX (14)', val: lastAx?.adx.toFixed(2), stat: lastAx?.adx > 25 ? (lastAx.diP > lastAx.diN ? 'BUY' : 'SELL') : 'NEUTRAL' },
-    { name: 'Awesome Osc', val: lastAo.toFixed(4), stat: lastAo > 0 ? 'BUY' : 'SELL' },
-    { name: 'Momentum (10)', val: lastMo.toFixed(2), stat: lastMo > 0 ? 'BUY' : 'SELL' },
-    { name: 'MACD Hist', val: lastMh.toFixed(4), stat: lastMh > 0 ? 'BUY' : 'SELL' },
-    { name: 'Stoch RSI', val: lastSr.toFixed(4), stat: lastSr < 0.2 ? 'BUY' : lastSr > 0.8 ? 'SELL' : 'NEUTRAL' },
-    { name: 'Williams %R', val: lastWr.toFixed(2), stat: lastWr < -80 ? 'BUY' : lastWr > -20 ? 'SELL' : 'NEUTRAL' },
-    { name: 'Bull Bear Power', val: (lastBp?.bull || 0).toFixed(2), stat: (lastBp?.bull || 0) > 0 ? 'BUY' : 'SELL' },
-    { name: 'Ultimate Osc', val: lastUo.toFixed(2), stat: lastUo < 30 ? 'BUY' : lastUo > 70 ? 'SELL' : 'NEUTRAL' }
-  ];
-  eMaps.forEach(m => { const v = m.map.get(lastTime) || lastClose; list.push({ name: `EMA ${m.p}`, val: v.toFixed(2), stat: lastClose > v ? 'BUY' : 'SELL' }); });
-  sMaps.forEach(m => { const v = m.map.get(lastTime) || lastClose; list.push({ name: `SMA ${m.p}`, val: v.toFixed(2), stat: lastClose > v ? 'BUY' : 'SELL' }); });
-  const hv = hMap.get(lastTime) || lastClose;
-  list.push({ name: 'Hull MA (9)', val: hv.toFixed(2), stat: lastClose > hv ? 'BUY' : 'SELL' });
-
-  const lastStats = {
-    oscillators: { buy: oscBuy, sell: oscSell, neutral: oscNeut },
-    movingAverages: { buy: maBuy, sell: maSell },
-    totalBuy,
-    totalSell,
-    totalScore: totalBuy + totalSell,
-    summary: totalBuy >= 14 ? 'STRONG BUY' : totalSell >= 14 ? 'STRONG SELL' : totalBuy > totalSell ? 'BUY' : 'SELL',
-    scoreDetail: `${totalBuy} Buy, ${totalSell} Sell, ${oscNeut} Neutral`,
-    list,
-    ratingAll: (totalBuy - totalSell) / 26
+  const lt = d[lastIdx].time, lc = d[lastIdx].close;
+  let fb = 0, fs = 0;
+  const list = [];
+  const add = (name, stance, weight) => {
+    if (stance === 'BUY') fb += weight; else if (stance === 'SELL') fs += weight;
+    list.push({ name, stat: stance, weight });
   };
 
-  return { markers, lastStats };
+  const e14 = e14Map.get(lt); add('EMA 14', lc > e14 * 1.001 ? 'BUY' : lc < e14 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA14);
+  const e26 = e26Map.get(lt); add('EMA 26', lc > e26 * 1.001 ? 'BUY' : lc < e26 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA26);
+  const e200 = e200Map.get(lt); add('EMA 200', lc > e200 * 1.001 ? 'BUY' : lc < e200 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA200);
+  const rsi = rMap.get(lt) || 50; add('RSI 14', rsi < 30 ? 'BUY' : rsi > 70 ? 'SELL' : 'NEUTRAL', weights.RSI);
+  const mh = mhMap.get(lt) || 0; add('MACD Hist', mh > (lc * 0.0001) ? 'BUY' : mh < -(lc * 0.0001) ? 'SELL' : 'NEUTRAL', weights.MACD_HIST);
+  const sk = skMap.get(lt) || 50; add('Stoch K', sk < 20 ? 'BUY' : sk > 80 ? 'SELL' : 'NEUTRAL', weights.STOCH_K);
+  const vwap = vwMap.get(lt); add('VWAP', lc > vwap * 1.001 ? 'BUY' : lc < vwap * 0.999 ? 'SELL' : 'NEUTRAL', weights.VWAP);
+  const cmf = cmMap.get(lt) || 0; add('CMF', cmf > 0.05 ? 'BUY' : cmf < -0.05 ? 'SELL' : 'NEUTRAL', weights.CMF);
+  add('Sentiment', sentimentScore > 10 ? 'BUY' : sentimentScore < -10 ? 'SELL' : 'NEUTRAL', weights.FEAR_GREED);
+
+  const totalBuy = ((fb / totalWeight) * 100).toFixed(0);
+  const totalSell = ((fs / totalWeight) * 100).toFixed(0);
+  const ratingAll = (fb - fs) / totalWeight;
+
+  return {
+    markers,
+    lastStats: {
+      totalBuy, totalSell, ratingAll,
+      summary: summaryFromRating(ratingAll),
+      scoreDetail: `Neural Consensus: ${totalBuy}% Bullish / ${totalSell}% Bearish`,
+      list: list.sort((a, b) => b.weight - a.weight)
+    }
+  };
 }

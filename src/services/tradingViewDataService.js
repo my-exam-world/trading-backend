@@ -117,6 +117,7 @@ export async function streamTradingViewData(symbol, timeframe = 'D', onTick, onE
 
         if (latest && latest.time && latest.open && latest.close) {
           const liveTick = {
+            symbol: symbol,
             time: timeframe.includes('D') || timeframe.includes('W') || timeframe.includes('M')
               ? new Date(latest.time * 1000).toISOString().split('T')[0]
               : latest.time,

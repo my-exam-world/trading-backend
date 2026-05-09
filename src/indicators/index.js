@@ -6,7 +6,7 @@ import { FibonacciIndicator } from './fibonacci.js';
 import * as MathUtils from '../utils/indicatorMath.js';
 
 export const IndicatorRegistry = {
-    calculateFromHistory: (history) => {
+    calculateFromHistory: (history, sentimentScore = 0) => {
         if (!history || history.length < 200) return {};
         
         const last = history[history.length - 1];
@@ -51,7 +51,7 @@ export const IndicatorRegistry = {
         const emaCrosses = MathUtils.calculateEMACrosses(history);
         const utBot = MathUtils.calculateUTBot(history, 2, 1);
         const chand = MathUtils.calculateChandelierExit(history, 22, 3);
-        const basuri = MathUtils.calculateBasuri(history);
+        const basuri = MathUtils.calculateBasuri(history, sentimentScore);
 
         const indicators = {
             close, high, low, volume,

@@ -19,15 +19,21 @@ export class LocalExchangeService {
   static async executeOrder(params) {
     const { symbol, type, price, quantity, stopLoss, takeProfit1, takeProfit2, timeframe } = params;
     
-    // Check if we have enough balance
-    const balance = await this.getBalance();
-    const cost = price * quantity;
+    const cost = Number((price * quantity).toFixed(2));
 
-    if (type === 'BUY' && balance < cost) {
-      throw new Error('Insufficient virtual balance');
+    // ATOMIC UPDATE: Only deduct if balance >= cost
+    const updateResult = await Account.updateOne(
+      { balance: { $gte: cost } }, 
+      { $inc: { balance: -cost } }
+    );
+
+    if (updateResult.modifiedCount === 0) {
+      const currentBalance = await this.getBalance();
+      console.warn(`[LOCAL TRADE] REJECTED: Insufficient balance for ${type} ${symbol}. Needed: ${cost}, Available: ${currentBalance}`);
+      throw new Error(`Insufficient virtual balance (Available: ${currentBalance.toFixed(2)}, Needed: ${cost.toFixed(2)})`);
     }
 
-    // Create the trade record
+    // Create the trade record only after funds are successfully locked
     const trade = await Trade.create({
       symbol,
       type,
@@ -41,10 +47,7 @@ export class LocalExchangeService {
       isLive: false
     });
 
-    // Update balance (Lock funds for both BUY and SELL)
-    await Account.updateOne({}, { $inc: { balance: -cost } });
-
-    console.log(`[LOCAL TRADE] ${type} ${symbol} executed at ${price}`);
+    console.log(`[LOCAL TRADE] ${type} ${symbol} executed at ${price}. Locked: ${cost}`);
     tradingEvents.emitChange({ action: 'ORDER_OPENED', tradeId: trade._id.toString(), symbol, timeframe });
     return trade;
   }
@@ -53,9 +56,12 @@ export class LocalExchangeService {
     const trade = await Trade.findById(tradeId);
     if (!trade || trade.status === 'CLOSED') return null;
 
-    const pnl = trade.type === 'BUY' 
+    // Calculate PnL with precision
+    const rawPnl = trade.type === 'BUY' 
       ? (exitPrice - trade.entryPrice) * trade.quantity
       : (trade.entryPrice - exitPrice) * trade.quantity;
+    
+    const pnl = Number(rawPnl.toFixed(2));
 
     trade.status = 'CLOSED';
     trade.exitPrice = exitPrice;
@@ -63,17 +69,19 @@ export class LocalExchangeService {
     trade.pnl = pnl;
     await trade.save();
 
-    // Return funds to account
-    const originalCost = trade.entryPrice * trade.quantity;
+    // Return funds to account (Atomic Increment)
+    const originalCost = Number((trade.entryPrice * trade.quantity).toFixed(2));
+    const returnAmount = Number((originalCost + pnl).toFixed(2));
+
     await Account.updateOne({}, { 
         $inc: { 
-            balance: originalCost + pnl,
+            balance: returnAmount,
             totalPnl: pnl,
             tradesCount: 1
         } 
     });
 
-    console.log(`[LOCAL TRADE] Closed ${tradeId} at ${exitPrice}. PnL: ${pnl}`);
+    console.log(`[LOCAL TRADE] Closed ${tradeId} at ${exitPrice}. PnL: ${pnl}. Returned: ${returnAmount}`);
     tradingEvents.emitChange({ action: 'ORDER_CLOSED', tradeId: trade._id.toString(), symbol: trade.symbol, timeframe: trade.timeframe });
     return trade;
   }

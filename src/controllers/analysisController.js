@@ -52,20 +52,20 @@ export class AnalysisController {
           console.warn("[ANALYSIS] History fetch failed, Brain using degraded state:", e.message);
       }
 
-      // 2. Calculate local indicators from history
+      // 3. Fetch Reddit Sentiment early to include in Basuri consensus
+      const sentiment = await SentimentService.analyzeSentiment(String(symbol));
+
+      // 4. Calculate local indicators from history
       // We use history.slice(0, -1) for the main scan to ensure the verdict is based on a CLOSED candle.
       // This prevents the prediction from flickering with every tick.
       const closedHistory = history.length > 1 ? history.slice(0, -1) : history;
-      const rawIndicators = IndicatorRegistry.calculateFromHistory(closedHistory);
+      const rawIndicators = IndicatorRegistry.calculateFromHistory(closedHistory, sentiment.sentiment_score);
 
 
-      // 3. Metadata from Yahoo. Keep live price separate so the brain stays aligned to the last closed candle.
+      // 5. Metadata from Yahoo. Keep live price separate so the brain stays aligned to the last closed candle.
       const yfSymbol = SymbolMapper.toYahoo(symbol, exchange);
       const yahooPrice = await YahooFinanceService.getPrice(yfSymbol);
       if (yahooPrice && yahooPrice.price) rawIndicators.live_close = yahooPrice.price;
-
-      // 4. Fetch Reddit Sentiment
-      const sentiment = await SentimentService.analyzeSentiment(String(symbol));
 
 
       rawIndicators['bbw'] = (rawIndicators['BB.upper'] && rawIndicators['BB.lower'] && rawIndicators.SMA20) 
@@ -108,8 +108,12 @@ export class AnalysisController {
         multi_agent_consensus: multiAgent,
         fibonacci_analysis: fibonacci,
         sentiment_analysis: sentiment,
-        timestamp: new Date().toISOString(),
-      });
+      };
+
+      // Save to cache
+      scanCache.set(cacheKey, { timestamp: Date.now(), data: result });
+
+      return res.json(result);
 
 
     } catch (error) {
@@ -218,8 +222,9 @@ export class AnalysisController {
         const history = await YahooFinanceService.getHistory(yfSymbol, '1wk', yInterval);
         if (history && history.length > 0) {
           const liveTick = history[history.length - 1]; // Grabs the most recent forming candle
+          const payload = { ...liveTick, symbol: pureSymbol };
           console.log(`[LIVE YAHOO] ${pureSymbol} | Price: ₹${liveTick.close}`);
-          res.write(`data: ${JSON.stringify(liveTick)}\n\n`);
+          res.write(`data: ${JSON.stringify(payload)}\n\n`);
         }
       } catch (err) {
         // Drop silent to keep interval alive

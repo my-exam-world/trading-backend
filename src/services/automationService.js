@@ -4,6 +4,7 @@ import { TradingService } from './tradingService.js';
 import { TradeSetupService } from './tradeSetupService.js';
 import { Trade } from '../models/Trade.js';
 import { AutomationState } from '../models/AutomationState.js';
+import { SentimentService } from './sentimentService.js';
 
 /**
  * Basuri Automation Service (Multi-Monitor Edition)
@@ -126,8 +127,11 @@ export class AutomationService {
     const currentPrice = lastCandle.close;
     if (!signalCandle) return;
 
-    // 2. Run Basuri on closed candles so live ticks do not flip signals intrabar.
-    const basuri = IndicatorMath.calculateBasuri(signalCandles);
+    // 2. Fetch sentiment for Fear & Greed Index (31st indicator)
+    const sentiment = await SentimentService.analyzeSentiment(symbol.split(':')[1] || symbol);
+    
+    // 3. Run Basuri on closed candles so live ticks do not flip signals intrabar.
+    const basuri = IndicatorMath.calculateBasuri(signalCandles, sentiment.sentiment_score);
     const markers = basuri.markers;
     if (!basuri.lastStats) return;
     
