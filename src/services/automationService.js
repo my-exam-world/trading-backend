@@ -131,7 +131,7 @@ export class AutomationService {
     const sentiment = await SentimentService.analyzeSentiment(symbol.split(':')[1] || symbol);
     
     // 3. Run Basuri on closed candles so live ticks do not flip signals intrabar.
-    const basuri = IndicatorMath.calculateBasuri(signalCandles, sentiment.sentiment_score);
+    const basuri = IndicatorMath.calculateBasuri(signalCandles, sentiment.sentiment_score, true);
     const markers = basuri.markers;
     if (!basuri.lastStats) return;
     

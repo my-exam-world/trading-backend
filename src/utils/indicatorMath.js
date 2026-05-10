@@ -995,7 +995,7 @@ function calculateBasuriTechnicalRatings(d) {
  * BASURI Neural Master (Neural 31 Supreme Consensus)
  * Updated to use User-Defined 31-indicator Priority System.
  */
-export function calculateBasuri(d, sentimentScore = 0) {
+export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
   if (d.length < 200) return { markers: [], lastStats: null };
 
   const weights = BASURI_WEIGHTS;
@@ -1129,35 +1129,44 @@ export function calculateBasuri(d, sentimentScore = 0) {
   };
 
   const markers = [];
-  let position = 0;
+  let lastStats = null;
 
-  for (let i = 200; i < d.length; i++) {
-    const stats = getConsensusAt(i);
-
-    // STRICT THRESHOLD: 55%
-    if (stats.bPct > 55 && position !== 1) {
-      markers.push({ time: d[i].time, type: 'BASURI_BUY', text: `🚀 BASURI BUY (${stats.bPct.toFixed(0)}%)` });
-      position = 1;
-    } else if (stats.sPct > 55 && position !== -1) {
-      markers.push({ time: d[i].time, type: 'BASURI_SELL', text: `❄️ BASURI SELL (${stats.sPct.toFixed(0)}%)` });
-      position = -1;
-    } else if (stats.bPct <= 52 && stats.sPct <= 52) {
-      position = 0;
-    }
-  }
-
-  // Final Stats for the latest candle
-  const final = getConsensusAt(d.length - 1);
-
-  return {
-    markers,
-    lastStats: {
+  if (lastOnly) {
+    // Only calculate for the very last candle
+    const final = getConsensusAt(d.length - 1);
+    lastStats = {
       totalBuy: final.bPct.toFixed(1),
       totalSell: final.sPct.toFixed(1),
       ratingAll: final.ratingAll,
       summary: final.bPct > 55 ? 'STRONG BUY' : final.sPct > 55 ? 'STRONG SELL' : final.bPct > 50 ? 'BUY' : final.sPct > 50 ? 'SELL' : 'NEUTRAL',
       scoreDetail: `Neural Consensus: ${final.bPct.toFixed(1)}% Bullish / ${final.sPct.toFixed(1)}% Bearish`,
       list: final.list.sort((a, b) => b.weight - a.weight)
+    };
+  } else {
+    let position = 0;
+    for (let i = 200; i < d.length; i++) {
+      const stats = getConsensusAt(i);
+      if (stats.bPct > 55 && position !== 1) {
+        markers.push({ time: d[i].time, type: 'BASURI_BUY', text: `🚀 BASURI BUY (${stats.bPct.toFixed(0)}%)` });
+        position = 1;
+      } else if (stats.sPct > 55 && position !== -1) {
+        markers.push({ time: d[i].time, type: 'BASURI_SELL', text: `❄️ BASURI SELL (${stats.sPct.toFixed(0)}%)` });
+        position = -1;
+      } else if (stats.bPct <= 52 && stats.sPct <= 52) {
+        position = 0;
+      }
+      if (i === d.length - 1) {
+        lastStats = {
+          totalBuy: stats.bPct.toFixed(1),
+          totalSell: stats.sPct.toFixed(1),
+          ratingAll: stats.ratingAll,
+          summary: stats.bPct > 55 ? 'STRONG BUY' : stats.sPct > 55 ? 'STRONG SELL' : stats.bPct > 50 ? 'BUY' : stats.sPct > 50 ? 'SELL' : 'NEUTRAL',
+          scoreDetail: `Neural Consensus: ${stats.bPct.toFixed(1)}% Bullish / ${stats.sPct.toFixed(1)}% Bearish`,
+          list: stats.list.sort((a, b) => b.weight - a.weight)
+        };
+      }
     }
-  };
+  }
+
+  return { markers, lastStats };
 }
