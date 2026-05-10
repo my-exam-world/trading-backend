@@ -166,6 +166,13 @@ export class AutomationService {
       }
     }
 
+    const buyPct = parseFloat(basuri.lastStats.totalBuy);
+    const sellPct = parseFloat(basuri.lastStats.totalSell);
+    const isStrongBuy = basuri.lastStats.summary === 'STRONG BUY';
+    const isStrongSell = basuri.lastStats.summary === 'STRONG SELL';
+
+    console.log(`[BOT CHECK] ${symbol} | Buy: ${buyPct.toFixed(1)}% | Sell: ${sellPct.toFixed(1)}% | Summary: ${basuri.lastStats.summary}`);
+
     // 4b. Check for New Signal (ENTRY)
     if (!openTrade) {
       const isStrongBuy = basuri.lastStats.summary === 'STRONG BUY';
