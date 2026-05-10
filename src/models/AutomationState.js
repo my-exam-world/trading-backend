@@ -11,7 +11,7 @@ const automationStateSchema = new mongoose.Schema({
   },
   intervalMs: {
     type: Number,
-    default: 60000,
+    default: 10000,
   },
   isActive: {
     type: Boolean,
