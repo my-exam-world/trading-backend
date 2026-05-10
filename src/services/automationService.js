@@ -181,11 +181,15 @@ export class AutomationService {
       if (isStrongBuy || isStrongSell) {
         const side = isStrongBuy ? 'BUY' : 'SELL';
 
-        // Allow entry if the marker is "Fresh" (exact crossover) OR "Recent" (within last 2 candles)
-        const isRecentMarker = lastMarker && (this.normalizeTime(signalCandle.time) - this.normalizeTime(lastMarker.time)) <= (3600); // Max 1 hour lag or ~few candles
-        
-        if (hasFreshMarker || isRecentMarker) {
-          console.log(`[SIGNAL] [${symbol}:${timeframe}] Fresh BASURI ${side} detected at ${currentPrice} (Rating: ${(basuri.lastStats.ratingAll ?? 0).toFixed(2)})`);
+        // [CRITICAL] Wait for Next Indicator Logic
+        // We only enter if the marker is FRESH (exact crossover) 
+        // AND it's a NEW marker that we haven't traded yet.
+        const state = await AutomationState.findOne({ symbol, timeframe });
+        const lastTradedTime = state?.lastTradedMarkerTime || 0;
+        const markerTime = this.normalizeTime(lastMarker.time);
+
+        if (hasFreshMarker && markerTime > lastTradedTime) {
+          console.log(`[SIGNAL] [${symbol}:${timeframe}] NEW BASURI ${side} detected at ${currentPrice}. Entering trade.`);
            
           await TradingService.placeOrder({
             symbol,
@@ -194,7 +198,18 @@ export class AutomationService {
             quantity: 1.0,
             timeframe: String(timeframe)
           });
-          AutomationState.updateOne({ symbol, timeframe }, { lastSignal: `ENTER ${side}` }).catch(() => {});
+
+          await AutomationState.updateOne(
+            { symbol, timeframe }, 
+            { 
+              lastSignal: `ENTER ${side}`,
+              lastTradedMarkerTime: markerTime 
+            }
+          ).catch(() => {});
+        } else {
+          if (hasFreshMarker && markerTime <= lastTradedTime) {
+            console.log(`[BOT] Skipping signal at ${markerTime} - Already traded this indicator.`);
+          }
         }
       }
     }

@@ -20,6 +20,9 @@ const SUBREDDIT_GROUPS = {
 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
+const SENTIMENT_CACHE = new Map();
+const CACHE_TTL = 60 * 1000; // 1 minute
+
 export class SentimentService {
   static scoreText(text) {
     const t = text.toLowerCase();
@@ -42,6 +45,12 @@ export class SentimentService {
   }
 
   static async analyzeSentiment(symbol, category = "all", limit = 20) {
+    const cacheKey = `${symbol}:${category}`;
+    const cached = SENTIMENT_CACHE.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      return cached.data;
+    }
+
     const subs = SUBREDDIT_GROUPS[category] || SUBREDDIT_GROUPS.all;
     const perSub = Math.max(2, Math.floor(limit / subs.length) + 1);
 
@@ -84,7 +93,7 @@ export class SentimentService {
     const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     allPosts.sort((a, b) => b.upvotes - a.upvotes);
 
-    return {
+    const result = {
       symbol: symbol.toUpperCase(),
       sentiment_score: Number(avg.toFixed(3)),
       sentiment_label: this.getLabel(avg),
@@ -96,5 +105,8 @@ export class SentimentService {
       sources: subs.map(s => `r/${s}`),
       timestamp: new Date().toISOString(),
     };
+
+    SENTIMENT_CACHE.set(cacheKey, { timestamp: Date.now(), data: result });
+    return result;
   }
 }
