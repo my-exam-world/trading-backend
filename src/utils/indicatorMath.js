@@ -739,10 +739,10 @@ function statFromRating(score) {
 }
 
 function summaryFromRating(score) {
-  if (score < -0.5) return 'STRONG SELL';
+  if (score < -0.55) return 'STRONG SELL';
   if (score < -0.1) return 'SELL';
   if (score <= 0.1) return 'NEUTRAL';
-  if (score <= 0.5) return 'BUY';
+  if (score <= 0.55) return 'BUY';
   return 'STRONG BUY';
 }
 
@@ -1038,111 +1038,126 @@ export function calculateBasuri(d, sentimentScore = 0) {
   const vwMap = new Map(vwapAll.map(x => [x.time, x.value]));
   const vsMap = new Map(volSmaAll.map(x => [x.time, x.value]));
 
+  /**
+   * Internal helper to compute consensus at a specific index
+   */
+  const getConsensusAt = (idx) => {
+    const ct = d[idx].time, close = d[idx].close, vol = d[idx].volume;
+    const prevClose = d[idx - 1]?.close || close;
+    let b = 0, s = 0;
+    const list = [];
+
+    const add = (name, stance, weight, val = '--') => {
+      if (stance === 'BUY') b += weight;
+      else if (stance === 'SELL') s += weight;
+      list.push({ name, stat: stance, weight, val });
+    };
+
+    // 1-3. EMAs (Strict)
+    const e14 = e14Map.get(ct); if (e14) add('EMA 14', close > e14 ? 'BUY' : 'SELL', weights.EMA14, close.toFixed(2));
+    const e26 = e26Map.get(ct); if (e26) add('EMA 26', close > e26 ? 'BUY' : 'SELL', weights.EMA26, close.toFixed(2));
+    const e200 = e200Map.get(ct); if (e200) add('EMA 200', close > e200 ? 'BUY' : 'SELL', weights.EMA200, close.toFixed(2));
+
+    // 4. RSI
+    const r = rMap.get(ct) || 50; add('RSI 14', r < 30 ? 'BUY' : r > 70 ? 'SELL' : 'NEUTRAL', weights.RSI, r.toFixed(1));
+
+    // 5-7. MACD
+    const ml = mlMap.get(ct) || 0, ms = msMap.get(ct) || 0, mh = mhMap.get(ct) || 0;
+    add('MACD Line', ml > 0 ? 'BUY' : 'SELL', weights.MACD_LINE, ml.toFixed(4));
+    add('MACD Signal', ms > 0 ? 'BUY' : 'SELL', weights.MACD_SIGNAL, ms.toFixed(4));
+    add('MACD Hist', mh > 0 ? 'BUY' : 'SELL', weights.MACD_HIST, mh.toFixed(4));
+
+    // 8-9. Stoch
+    const sk = skMap.get(ct) || 50, sd = sdMap.get(ct) || 50;
+    add('Stoch K', sk < 20 ? 'BUY' : sk > 80 ? 'SELL' : 'NEUTRAL', weights.STOCH_K, sk.toFixed(1));
+    add('Stoch D', sd < 20 ? 'BUY' : sd > 80 ? 'SELL' : 'NEUTRAL', weights.STOCH_D, sd.toFixed(1));
+
+    // 10. CCI
+    const cc = cMap.get(ct) || 0; add('CCI 20', cc < -100 ? 'BUY' : cc > 100 ? 'SELL' : 'NEUTRAL', weights.CCI, cc.toFixed(1));
+
+    // 11. MFI
+    const mfi = mfMap.get(ct) || 50; add('MFI 14', mfi < 20 ? 'BUY' : mfi > 80 ? 'SELL' : 'NEUTRAL', weights.MFI, mfi.toFixed(1));
+
+    // 12-14. Bollinger
+    const bb = bbMap.get(ct);
+    if (bb) {
+      add('BB Upper', close > bb.upper ? 'SELL' : 'NEUTRAL', weights.BB_UPPER, bb.upper.toFixed(2));
+      add('BB Basis', close > bb.basis ? 'BUY' : 'SELL', weights.BB_MIDDLE, bb.basis.toFixed(2));
+      add('BB Lower', close < bb.lower ? 'BUY' : 'NEUTRAL', weights.BB_LOWER, bb.lower.toFixed(2));
+    }
+
+    // 15. ATR (Volatility)
+    const atr = atMap.get(ct) || 0, prevAtr = atMap.get(d[idx - 1]?.time) || atr;
+    add('ATR Volatility', atr > prevAtr ? 'BUY' : 'NEUTRAL', weights.ATR, atr.toFixed(2));
+
+    // 16. ADX (Trend Strength)
+    const ax = axMap.get(ct);
+    if (ax) add('ADX Trend', ax.adx > 25 ? (ax.diP > ax.diN ? 'BUY' : 'SELL') : 'NEUTRAL', weights.ADX, ax.adx.toFixed(1));
+
+    // 17-18. OBV/CMF
+    const obv = obMap.get(ct) || 0, prevObv = obMap.get(d[idx - 1]?.time) || 0;
+    add('OBV Flow', obv > prevObv ? 'BUY' : 'SELL', weights.OBV, obv.toFixed(0));
+    const cm = cmMap.get(ct) || 0; add('CMF Flow', cm > 0.05 ? 'BUY' : cm < -0.05 ? 'SELL' : 'NEUTRAL', weights.CMF, cm.toFixed(3));
+
+    // 19. Volume Spike
+    const vs = vsMap.get(ct) || 1;
+    add('Volume Spike', (vol > vs * 2 && close > prevClose) ? 'BUY' : 'NEUTRAL', weights.VOL_SPIKE, (vol / vs).toFixed(1) + 'x');
+
+    // 20-24. Pivots (Simulated logic based on current candle vs classic levels)
+    const p = calculatePivotClassic(d.slice(0, idx + 1));
+    if (p) {
+      add('Pivot Point', close > p.pp ? 'BUY' : 'SELL', weights.PIVOT_P, p.pp.toFixed(2));
+      add('Pivot R1', close > p.r1 ? 'SELL' : 'NEUTRAL', weights.PIVOT_R1, p.r1.toFixed(2));
+      add('Pivot S1', close < p.s1 ? 'BUY' : 'NEUTRAL', weights.PIVOT_S1, p.s1.toFixed(2));
+    }
+
+    // 25-29. Fibs
+    const f = calculateFibLevelsForPrice(close, d[idx].high, d[idx].low);
+    add('Fib 0.618', close < f.f618 ? 'BUY' : 'NEUTRAL', weights.FIB_0618, f.f618.toFixed(2));
+
+    // 30. VWAP
+    const vwap = vwMap.get(ct); if (vwap) add('VWAP', close > vwap ? 'BUY' : 'SELL', weights.VWAP, vwap.toFixed(2));
+
+    // 31. Sentiment (Reddit/Social)
+    add('Neural Sentiment', sentimentScore > 0.1 ? 'BUY' : sentimentScore < -0.1 ? 'SELL' : 'NEUTRAL', weights.FEAR_GREED, (sentimentScore * 100).toFixed(0) + '%');
+
+    const bPct = (b / totalWeight) * 100;
+    const sPct = (s / totalWeight) * 100;
+    const ratingAll = (b - s) / totalWeight;
+
+    return { bPct, sPct, ratingAll, list };
+  };
+
   const markers = [];
   let position = 0;
 
   for (let i = 200; i < d.length; i++) {
-    const ct = d[i].time, close = d[i].close, vol = d[i].volume;
-    let b = 0, s = 0;
-
-    // 1-3. EMAs with 0.1% Neutral Buffer
-    const e14 = e14Map.get(ct); if (e14) { if (close > e14 * 1.001) b += weights.EMA14; else if (close < e14 * 0.999) s += weights.EMA14; }
-    const e26 = e26Map.get(ct); if (e26) { if (close > e26 * 1.001) b += weights.EMA26; else if (close < e26 * 0.999) s += weights.EMA26; }
-    const e200 = e200Map.get(ct); if (e200) { if (close > e200 * 1.001) b += weights.EMA200; else if (close < e200 * 0.999) s += weights.EMA200; }
-
-    // 4. RSI (Selective)
-    const r = rMap.get(ct) || 50; if (r < 30) b += weights.RSI; else if (r > 70) s += weights.RSI;
-
-    // 5-7. MACD (Sensitive)
-    const ml = mlMap.get(ct) || 0, ms = msMap.get(ct) || 0, mh = mhMap.get(ct) || 0;
-    if (ml > 0) b += weights.MACD_LINE; else if (ml < 0) s += weights.MACD_LINE;
-    if (ms > 0) b += weights.MACD_SIGNAL; else if (ms < 0) s += weights.MACD_SIGNAL;
-    const hBuf = close * 0.0001;
-    if (mh > hBuf) b += weights.MACD_HIST; else if (mh < -hBuf) s += weights.MACD_HIST;
-
-    // 8-9. Stoch (Selective)
-    const sk = skMap.get(ct) || 50, sd = sdMap.get(ct) || 50;
-    if (sk < 20) b += weights.STOCH_K; else if (sk > 80) s += weights.STOCH_K;
-    if (sd < 20) b += weights.STOCH_D; else if (sd > 80) s += weights.STOCH_D;
-
-    // 10. CCI (Selective)
-    const cc = cMap.get(ct) || 0; if (cc > 100) s += weights.CCI; else if (cc < -100) b += weights.CCI;
-
-    // 11. MFI (Selective)
-    const mfi = mfMap.get(ct) || 50; if (mfi < 20) b += weights.MFI; else if (mfi > 80) s += weights.MFI;
-
-    // 12-14. Bollinger (Selective)
-    const bb = bbMap.get(ct);
-    if (bb) {
-      if (close > bb.upper) s += weights.BB_UPPER; else if (close < bb.lower) b += weights.BB_LOWER;
-      if (close > bb.basis * 1.0005) b += weights.BB_MIDDLE; else if (close < bb.basis * 0.9995) s += weights.BB_MIDDLE;
-    }
-
-    // 16. ADX (Selective)
-    const adx = axMap.get(ct);
-    if (adx && adx.adx > 25) { if (adx.diP > adx.diN) b += weights.ADX; else if (adx.diN > adx.diP) s += weights.ADX; }
-
-    // 17-18. OBV/CMF
-    const obv = obMap.get(ct) || 0, prevObv = obMap.get(d[i - 1]?.time) || 0;
-    if (obv > prevObv) b += weights.OBV; else if (obv < prevObv) s += weights.OBV;
-    const cm = cmMap.get(ct) || 0; if (cm > 0.05) b += weights.CMF; else if (cm < -0.05) s += weights.CMF;
-
-    // 19. Volume Spike
-    const vs = vsMap.get(ct) || 0;
-    if (vol > vs * 2 && close > (d[i - 1]?.close || close)) b += weights.VOL_SPIKE;
-
-    // 30. VWAP with 0.1% Buffer
-    const vwap = vwMap.get(ct); if (vwap) { if (close > vwap * 1.001) b += weights.VWAP; else if (close < vwap * 0.999) s += weights.VWAP; }
-
-    // 31. Sentiment
-    if (sentimentScore > 10) b += weights.FEAR_GREED; else if (sentimentScore < -10) s += weights.FEAR_GREED;
-
-    const bPct = (b / totalWeight) * 100;
-    const sPct = (s / totalWeight) * 100;
+    const stats = getConsensusAt(i);
 
     // STRICT THRESHOLD: 55%
-    if (bPct > 55 && position !== 1) {
-      markers.push({ time: ct, type: 'BASURI_BUY', text: `🚀 BASURI 31 BUY (${bPct.toFixed(0)}%)` });
+    if (stats.bPct > 55 && position !== 1) {
+      markers.push({ time: d[i].time, type: 'BASURI_BUY', text: `🚀 BASURI BUY (${stats.bPct.toFixed(0)}%)` });
       position = 1;
-    } else if (sPct > 55 && position !== -1) {
-      markers.push({ time: ct, type: 'BASURI_SELL', text: `❄️ BASURI 31 SELL (${sPct.toFixed(0)}%)` });
+    } else if (stats.sPct > 55 && position !== -1) {
+      markers.push({ time: d[i].time, type: 'BASURI_SELL', text: `❄️ BASURI SELL (${stats.sPct.toFixed(0)}%)` });
       position = -1;
-    } else if (bPct <= 52 && sPct <= 52) {
+    } else if (stats.bPct <= 52 && stats.sPct <= 52) {
       position = 0;
     }
   }
 
-  // --- LATEST STATS (Final Candle) ---
-  const lastIdx = d.length - 1;
-  const lt = d[lastIdx].time, lc = d[lastIdx].close;
-  let fb = 0, fs = 0;
-  const list = [];
-  const add = (name, stance, weight) => {
-    if (stance === 'BUY') fb += weight; else if (stance === 'SELL') fs += weight;
-    list.push({ name, stat: stance, weight });
-  };
-
-  const e14 = e14Map.get(lt); add('EMA 14', lc > e14 * 1.001 ? 'BUY' : lc < e14 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA14);
-  const e26 = e26Map.get(lt); add('EMA 26', lc > e26 * 1.001 ? 'BUY' : lc < e26 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA26);
-  const e200 = e200Map.get(lt); add('EMA 200', lc > e200 * 1.001 ? 'BUY' : lc < e200 * 0.999 ? 'SELL' : 'NEUTRAL', weights.EMA200);
-  const rsi = rMap.get(lt) || 50; add('RSI 14', rsi < 30 ? 'BUY' : rsi > 70 ? 'SELL' : 'NEUTRAL', weights.RSI);
-  const mh = mhMap.get(lt) || 0; add('MACD Hist', mh > (lc * 0.0001) ? 'BUY' : mh < -(lc * 0.0001) ? 'SELL' : 'NEUTRAL', weights.MACD_HIST);
-  const sk = skMap.get(lt) || 50; add('Stoch K', sk < 20 ? 'BUY' : sk > 80 ? 'SELL' : 'NEUTRAL', weights.STOCH_K);
-  const vwap = vwMap.get(lt); add('VWAP', lc > vwap * 1.001 ? 'BUY' : lc < vwap * 0.999 ? 'SELL' : 'NEUTRAL', weights.VWAP);
-  const cmf = cmMap.get(lt) || 0; add('CMF', cmf > 0.05 ? 'BUY' : cmf < -0.05 ? 'SELL' : 'NEUTRAL', weights.CMF);
-  add('Sentiment', sentimentScore > 10 ? 'BUY' : sentimentScore < -10 ? 'SELL' : 'NEUTRAL', weights.FEAR_GREED);
-
-  const totalBuy = ((fb / totalWeight) * 100).toFixed(0);
-  const totalSell = ((fs / totalWeight) * 100).toFixed(0);
-  const ratingAll = (fb - fs) / totalWeight;
+  // Final Stats for the latest candle
+  const final = getConsensusAt(d.length - 1);
 
   return {
     markers,
     lastStats: {
-      totalBuy, totalSell, ratingAll,
-      summary: summaryFromRating(ratingAll),
-      scoreDetail: `Neural Consensus: ${totalBuy}% Bullish / ${totalSell}% Bearish`,
-      list: list.sort((a, b) => b.weight - a.weight)
+      totalBuy: final.bPct.toFixed(1),
+      totalSell: final.sPct.toFixed(1),
+      ratingAll: final.ratingAll,
+      summary: final.bPct > 55 ? 'STRONG BUY' : final.sPct > 55 ? 'STRONG SELL' : final.bPct > 50 ? 'BUY' : final.sPct > 50 ? 'SELL' : 'NEUTRAL',
+      scoreDetail: `Neural Consensus: ${final.bPct.toFixed(1)}% Bullish / ${final.sPct.toFixed(1)}% Bearish`,
+      list: final.list.sort((a, b) => b.weight - a.weight)
     }
   };
 }

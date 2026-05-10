@@ -122,7 +122,7 @@ export class AutomationService {
     }
 
     const lastCandle = candles[candles.length - 1];
-    const signalCandles = candles.length > 1 ? candles.slice(0, -1) : candles;
+    const signalCandles = candles;
     const signalCandle = signalCandles[signalCandles.length - 1];
     const currentPrice = lastCandle.close;
     if (!signalCandle) return;
@@ -165,7 +165,10 @@ export class AutomationService {
       if (isStrongBuy || isStrongSell) {
         const side = isStrongBuy ? 'BUY' : 'SELL';
 
-        if (hasFreshMarker) {
+        // Allow entry if the marker is "Fresh" (exact crossover) OR "Recent" (within last 2 candles)
+        const isRecentMarker = lastMarker && (this.normalizeTime(signalCandle.time) - this.normalizeTime(lastMarker.time)) <= (3600); // Max 1 hour lag or ~few candles
+        
+        if (hasFreshMarker || isRecentMarker) {
           console.log(`[SIGNAL] [${symbol}:${timeframe}] Fresh BASURI ${side} detected at ${currentPrice} (Rating: ${(basuri.lastStats.ratingAll ?? 0).toFixed(2)})`);
            
           await TradingService.placeOrder({

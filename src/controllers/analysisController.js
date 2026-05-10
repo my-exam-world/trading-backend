@@ -56,10 +56,8 @@ export class AnalysisController {
       const sentiment = await SentimentService.analyzeSentiment(String(symbol));
 
       // 4. Calculate local indicators from history
-      // We use history.slice(0, -1) for the main scan to ensure the verdict is based on a CLOSED candle.
-      // This prevents the prediction from flickering with every tick.
-      const closedHistory = history.length > 1 ? history.slice(0, -1) : history;
-      const rawIndicators = IndicatorRegistry.calculateFromHistory(closedHistory, sentiment.sentiment_score);
+      // We now use the full history for the main scan to provide real-time predictions.
+      const rawIndicators = IndicatorRegistry.calculateFromHistory(history, sentiment.sentiment_score);
 
 
       // 5. Metadata from Yahoo. Keep live price separate so the brain stays aligned to the last closed candle.
