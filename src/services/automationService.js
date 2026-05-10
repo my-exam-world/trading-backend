@@ -144,16 +144,25 @@ export class AutomationService {
       && lastMarkerTime !== null
       && lastMarkerTime === lastTime;
     
-    // 4a. Check for Opposite Signal (EXIT CURRENT)
-    if (openTrade && lastMarker) {
-      const isOpposite = (openTrade.type === 'BUY' && lastMarker.type === 'BASURI_SELL') || 
-                         (openTrade.type === 'SELL' && lastMarker.type === 'BASURI_BUY');
+    // 4a. Check for EXIT conditions (Opposite Signal OR Momentum Loss)
+    if (openTrade) {
+      const isOpposite = (lastMarker && hasFreshMarker) && 
+                         ((openTrade.type === 'BUY' && lastMarker.type === 'BASURI_SELL') || 
+                          (openTrade.type === 'SELL' && lastMarker.type === 'BASURI_BUY'));
+      
+      const buyPct = parseFloat(basuri.lastStats.totalBuy);
+      const sellPct = parseFloat(basuri.lastStats.totalSell);
+      
+      const isMomentumLoss = (openTrade.type === 'BUY' && buyPct < 50) || 
+                             (openTrade.type === 'SELL' && sellPct < 50);
 
-      if (hasFreshMarker && isOpposite) {
-        console.log(`[SIGNAL] [${symbol}:${timeframe}] Opposite signal (${lastMarker.type}) detected. Closing ${openTrade.type} position.`);
+      if (isOpposite || isMomentumLoss) {
+        const reason = isOpposite ? `Opposite Signal (${lastMarker.type})` : `Momentum Loss (${openTrade.type === 'BUY' ? buyPct : sellPct}%)`;
+        console.log(`[SIGNAL] [${symbol}:${timeframe}] ${reason} detected. Closing ${openTrade.type} position.`);
+        
         await TradingService.closePosition(openTrade._id, currentPrice);
-        openTrade = null; // Mark as null so we can potentially open a new one below
-        AutomationState.updateOne({ symbol, timeframe }, { lastSignal: `EXIT ${openTrade?.type || ''}` }).catch(() => {});
+        AutomationState.updateOne({ symbol, timeframe }, { lastSignal: `EXIT ${openTrade.type} (${reason})` }).catch(() => {});
+        openTrade = null; // Mark as null so we can check for a fresh entry if needed
       }
     }
 
