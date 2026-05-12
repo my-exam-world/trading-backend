@@ -130,19 +130,28 @@ export class AutomationService {
     // 2. Fetch sentiment for Fear & Greed Index (31st indicator)
     const sentiment = await SentimentService.analyzeSentiment(symbol.split(':')[1] || symbol);
     
-    // 3. Run Basuri on closed candles so live ticks do not flip signals intrabar.
-    const basuri = IndicatorMath.calculateBasuri(signalCandles, sentiment.sentiment_score, true);
+    // 3. Run Basuri on all candles so we can detect signals correctly.
+    // [CRITICAL] Changed lastOnly from true to false to enable marker detection.
+    const basuri = IndicatorMath.calculateBasuri(signalCandles, sentiment.sentiment_score, false);
     const markers = basuri.markers;
-    if (!basuri.lastStats) return;
+    if (!basuri.lastStats) {
+        console.warn(`[BOT] [${symbol}] No stats returned from Basuri engine.`);
+        return;
+    }
     
     // 4. Position Management (Stop & Reverse Logic)
     let openTrade = await Trade.findOne({ symbol, status: 'OPEN' });
-    const lastMarker = markers[markers.length - 1];
+    const lastMarker = markers.length > 0 ? markers[markers.length - 1] : null;
     const lastTime = this.normalizeTime(signalCandle.time);
+    const prevTime = candles.length >= 2 ? this.normalizeTime(candles[candles.length - 2].time) : null;
     const lastMarkerTime = lastMarker ? this.normalizeTime(lastMarker.time) : null;
-    const hasFreshMarker = lastTime !== null
-      && lastMarkerTime !== null
-      && lastMarkerTime === lastTime;
+
+    // Freshness: Marker must be on the current candle OR the previous candle
+    const hasFreshMarker = lastMarkerTime !== null && (lastMarkerTime === lastTime || lastMarkerTime === prevTime);
+
+    if (lastMarker && !hasFreshMarker) {
+        console.log(`[BOT] [${symbol}] Found marker at ${lastMarkerTime}, but it is not fresh (Last: ${lastTime}, Prev: ${prevTime}). Skipping.`);
+    }
     
     // 4a. Check for EXIT conditions (Opposite Signal OR Momentum Loss)
     if (openTrade) {
@@ -168,27 +177,29 @@ export class AutomationService {
 
     const buyPct = parseFloat(basuri.lastStats.totalBuy);
     const sellPct = parseFloat(basuri.lastStats.totalSell);
-    const isStrongBuy = basuri.lastStats.summary === 'STRONG BUY';
-    const isStrongSell = basuri.lastStats.summary === 'STRONG SELL';
-
-    console.log(`[BOT CHECK] ${symbol} | Buy: ${buyPct.toFixed(1)}% | Sell: ${sellPct.toFixed(1)}% | Summary: ${basuri.lastStats.summary}`);
+    
+    // We log the current state regardless of whether we trade
+    console.log(`[BOT CHECK] ${symbol} | Buy: ${buyPct.toFixed(1)}% | Sell: ${sellPct.toFixed(1)}% | Summary: ${basuri.lastStats.summary} | Marker: ${lastMarker?.type || 'NONE'} at ${lastMarkerTime}`);
 
     // 4b. Check for New Signal (ENTRY)
     if (!openTrade) {
-      const isStrongBuy = basuri.lastStats.summary === 'STRONG BUY';
-      const isStrongSell = basuri.lastStats.summary === 'STRONG SELL';
-      
-      if (isStrongBuy || isStrongSell) {
-        const side = isStrongBuy ? 'BUY' : 'SELL';
+      if (lastMarker && hasFreshMarker) {
+        const side = (lastMarker.type === 'BASURI_BUY') ? 'BUY' : 
+                     (lastMarker.type === 'BASURI_SELL') ? 'SELL' : null;
+        
+        if (!side) {
+            console.log(`[BOT] [${symbol}] Ignoring unknown marker type: ${lastMarker.type}`);
+            return;
+        }
 
         // [CRITICAL] Wait for Next Indicator Logic
         // We only enter if the marker is FRESH (exact crossover) 
         // AND it's a NEW marker that we haven't traded yet.
         const state = await AutomationState.findOne({ symbol, timeframe });
         const lastTradedTime = state?.lastTradedMarkerTime || 0;
-        const markerTime = this.normalizeTime(lastMarker.time);
+        const markerTime = lastMarkerTime;
 
-        if (hasFreshMarker && markerTime > lastTradedTime) {
+        if (markerTime > lastTradedTime) {
           console.log(`[SIGNAL] [${symbol}:${timeframe}] NEW BASURI ${side} detected at ${currentPrice}. Entering trade.`);
            
           await TradingService.placeOrder({

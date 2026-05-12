@@ -29,8 +29,9 @@ export class LocalExchangeService {
 
     if (updateResult.modifiedCount === 0) {
       const currentBalance = await this.getBalance();
-      console.warn(`[LOCAL TRADE] REJECTED: Insufficient balance for ${type} ${symbol}. Needed: ${cost}, Available: ${currentBalance}`);
-      throw new Error(`Insufficient virtual balance (Available: ${currentBalance.toFixed(2)}, Needed: ${cost.toFixed(2)})`);
+      const msg = `[LOCAL TRADE] REJECTED: Insufficient balance for ${type} ${symbol}. Needed: ${cost}, Available: ${currentBalance}`;
+      console.error(msg);
+      throw new Error(msg);
     }
 
     // Create the trade record only after funds are successfully locked
