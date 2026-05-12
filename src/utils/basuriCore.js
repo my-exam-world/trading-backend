@@ -2,7 +2,8 @@ import {
   calculateEMA, calculateRSI, calculateMACD, calculateStochastic,
   calculateCCI, calculateMFI, calculateBollingerBands, calculateATR,
   calculateADX, calculateOBV, calculateCMF, calculateVWAP,
-  calculateVolumeSMA, calculatePivotClassic, calculateFibLevelsForPrice
+  calculateVolumeSMA, calculatePivotClassic, calculateFibLevelsForPrice,
+  calculateSupertrend, calculateHMA
 } from './indicatorMath.js'; // Adjust path for backend
 
 export const BASURI_WEIGHTS = {
@@ -21,7 +22,9 @@ export const BASURI_WEIGHTS = {
   PIVOT_P: 5, PIVOT_R1: 3, PIVOT_S1: 3,
   FIB_0618: 8,
   VWAP: 10,
-  FEAR_GREED: 10
+  FEAR_GREED: 10,
+  SUPERTREND: 15,
+  HMA: 8
 };
 
 export const TOTAL_BASURI_WEIGHT = Object.values(BASURI_WEIGHTS).reduce((a, b) => a + b, 0);
@@ -57,6 +60,8 @@ export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
   const cmMap = new Map(calculateCMF(d, 20).map(x => [x.time, x.value]));
   const vwMap = new Map(calculateVWAP(d).map(x => [x.time, x.value]));
   const vsMap = new Map(calculateVolumeSMA(d, 20).map(x => [x.time, x.value]));
+  const stMap = new Map(calculateSupertrend(d, 10, 3).map(x => [x.time, x]));
+  const hmaMap = new Map(calculateHMA(d, 9).map(x => [x.time, x.value]));
 
   const getConsensusAt = (idx) => {
     const ct = d[idx].time, close = d[idx].close, vol = d[idx].volume;
@@ -93,14 +98,16 @@ export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
       add('BB Basis', close > bb.basis ? 'BUY' : 'SELL', weights.BB_MIDDLE, bb.basis.toFixed(2));
       add('BB Lower', close < bb.lower ? 'BUY' : 'NEUTRAL', weights.BB_LOWER, bb.lower.toFixed(2));
     }
-    const atr = atMap.get(ct), prevAtr = atMap.get(d[idx - 1]?.time) || atr;
-    if (atr) add('ATR Volatility', atr > prevAtr ? 'BUY' : 'NEUTRAL', weights.ATR, atr.toFixed(2));
+    const atr = atMap.get(ct);
+    if (atr) add('ATR Volatility', 'NEUTRAL', weights.ATR, atr.toFixed(2));
     const ax = axMap.get(ct);
     if (ax) add('ADX Trend', ax.adx > 25 ? (ax.diP > ax.diN ? 'BUY' : 'SELL') : 'NEUTRAL', weights.ADX, ax.adx.toFixed(1));
     const obv = obMap.get(ct), prevObv = obMap.get(d[idx - 1]?.time) || 0;
     if (obv !== undefined) add('OBV Flow', obv > prevObv ? 'BUY' : 'SELL', weights.OBV, obv.toFixed(0));
     const cm = cmMap.get(ct); if (cm !== undefined) add('CMF Flow', cm > 0.05 ? 'BUY' : cm < -0.05 ? 'SELL' : 'NEUTRAL', weights.CMF, cm.toFixed(3));
-    const vs = vsMap.get(ct) || 1; add('Volume Spike', (vol > vs * 2 && close > prevClose) ? 'BUY' : 'NEUTRAL', weights.VOL_SPIKE, (vol / vs).toFixed(1) + 'x');
+    const vs = vsMap.get(ct) || 1; 
+    const vStance = (vol > vs * 2) ? (close > prevClose ? 'BUY' : 'SELL') : 'NEUTRAL';
+    add('Volume Spike', vStance, weights.VOL_SPIKE, (vol / vs).toFixed(1) + 'x');
     const vwap = vwMap.get(ct); if (vwap) add('VWAP', close > vwap ? 'BUY' : 'SELL', weights.VWAP, vwap.toFixed(2));
 
     const p = calculatePivotClassic(d.slice(0, idx + 1));
@@ -109,13 +116,14 @@ export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
       add('Pivot R1', close > p.r1 ? 'SELL' : 'NEUTRAL', weights.PIVOT_R1, p.r1.toFixed(2));
       add('Pivot S1', close < p.s1 ? 'BUY' : 'NEUTRAL', weights.PIVOT_S1, p.s1.toFixed(2));
     }
-    const f = calculateFibLevelsForPrice(close, d[idx].high, d[idx].low);
-    add('Fib 0.618', close < f.f618 ? 'BUY' : 'NEUTRAL', weights.FIB_0618, f.f618.toFixed(2));
+    const hma = hmaMap.get(ct); if (hma) add('HMA 9', close > hma ? 'BUY' : 'SELL', weights.HMA || 8, hma.toFixed(2));
+    const st = stMap.get(ct);
+    if (st) add('Supertrend', st.trend === 1 ? 'BUY' : 'SELL', weights.SUPERTREND, st.value.toFixed(2));
 
     add('Neural Sentiment', sentimentScore > 0.1 ? 'BUY' : sentimentScore < -0.1 ? 'SELL' : 'NEUTRAL', weights.FEAR_GREED, (sentimentScore * 100).toFixed(0) + '%');
 
     const bPct = (b / totalWeight) * 100, sPct = (s / totalWeight) * 100, ratingAll = (b - s) / totalWeight;
-    const summary = bPct > 55 ? 'STRONG BUY' : sPct > 55 ? 'STRONG SELL' : bPct > 50 ? 'BUY' : sPct > 50 ? 'SELL' : 'NEUTRAL';
+    const summary = bPct > 50 ? 'STRONG BUY' : sPct > 50 ? 'STRONG SELL' : bPct > 45 ? 'BUY' : sPct > 45 ? 'SELL' : 'NEUTRAL';
     return { bPct, sPct, ratingAll, summary, list };
   };
 
@@ -136,13 +144,13 @@ export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
     let position = 0;
     for (let i = 200; i < d.length; i++) {
       const stats = getConsensusAt(i);
-      if (stats.bPct > 55 && position !== 1) {
+      if (stats.bPct > 50 && position !== 1) {
         markers.push({ time: d[i].time, position: 'belowBar', color: '#00D4FF', shape: 'arrowUp', text: `BASURI BUY (${stats.bPct.toFixed(0)}%)`, type: 'BASURI_BUY' });
         position = 1;
-      } else if (stats.sPct > 55 && position !== -1) {
+      } else if (stats.sPct > 50 && position !== -1) {
         markers.push({ time: d[i].time, position: 'aboveBar', color: '#FF00FF', shape: 'arrowDown', text: `BASURI SELL (${stats.sPct.toFixed(0)}%)`, type: 'BASURI_SELL' });
         position = -1;
-      } else if (stats.bPct <= 52 && stats.sPct <= 52) {
+      } else if (stats.bPct < 45 && stats.sPct < 45) {
         position = 0;
       }
       if (i === d.length - 1) {

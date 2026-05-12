@@ -21,8 +21,13 @@ export class TradingService {
     return await LocalExchangeService.getBalance();
   }
 
-  static async getTrades(limit = 50) {
-    return await Trade.find().sort({ createdAt: -1 }).limit(limit);
+  static async getTrades(page = 1, limit = 20) {
+    const skip = (Number(page) - 1) * Number(limit);
+    const [trades, total] = await Promise.all([
+      Trade.find().sort({ createdAt: -1 }).skip(skip).limit(Number(limit)),
+      Trade.countDocuments()
+    ]);
+    return { trades, total, page: Number(page), limit: Number(limit) };
   }
 
   static async getOpenPositions() {
@@ -30,15 +35,16 @@ export class TradingService {
   }
 
   static async getDashboardSnapshot() {
-    const [balance, trades, positions] = await Promise.all([
+    const [balance, tradeData, positions] = await Promise.all([
       this.getBalance(),
-      this.getTrades(),
+      this.getTrades(1, 20),
       this.getOpenPositions(),
     ]);
 
     return {
       balance,
-      trades,
+      trades: tradeData.trades,
+      totalTrades: tradeData.total,
       positions,
       updatedAt: new Date().toISOString(),
     };

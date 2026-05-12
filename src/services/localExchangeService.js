@@ -7,6 +7,13 @@ import { tradingEvents } from './tradingEvents.js';
  * Simulates trade execution in the local database.
  */
 export class LocalExchangeService {
+  static validatePositiveNumber(value, label) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      throw new Error(`${label} must be a positive number`);
+    }
+    return parsed;
+  }
   
   static async getBalance() {
     let account = await Account.findOne();
@@ -17,7 +24,15 @@ export class LocalExchangeService {
   }
 
   static async executeOrder(params) {
-    const { symbol, type, price, quantity, stopLoss, takeProfit1, takeProfit2, timeframe } = params;
+    const { symbol, type, stopLoss, takeProfit1, takeProfit2, timeframe } = params;
+    const price = this.validatePositiveNumber(params.price, 'price');
+    const quantity = this.validatePositiveNumber(params.quantity, 'quantity');
+
+    if (!symbol || !['BUY', 'SELL'].includes(type)) {
+      throw new Error('symbol and valid order type are required');
+    }
+
+    await this.getBalance();
     
     const cost = Number((price * quantity).toFixed(2));
 
@@ -54,18 +69,19 @@ export class LocalExchangeService {
   }
 
   static async closeTrade(tradeId, exitPrice) {
+    const safeExitPrice = this.validatePositiveNumber(exitPrice, 'exitPrice');
     const trade = await Trade.findById(tradeId);
     if (!trade || trade.status === 'CLOSED') return null;
 
     // Calculate PnL with precision
     const rawPnl = trade.type === 'BUY' 
-      ? (exitPrice - trade.entryPrice) * trade.quantity
-      : (trade.entryPrice - exitPrice) * trade.quantity;
+      ? (safeExitPrice - trade.entryPrice) * trade.quantity
+      : (trade.entryPrice - safeExitPrice) * trade.quantity;
     
     const pnl = Number(rawPnl.toFixed(2));
 
     trade.status = 'CLOSED';
-    trade.exitPrice = exitPrice;
+    trade.exitPrice = safeExitPrice;
     trade.exitTime = new Date();
     trade.pnl = pnl;
     await trade.save();
@@ -82,7 +98,7 @@ export class LocalExchangeService {
         } 
     });
 
-    console.log(`[LOCAL TRADE] Closed ${tradeId} at ${exitPrice}. PnL: ${pnl}. Returned: ${returnAmount}`);
+    console.log(`[LOCAL TRADE] Closed ${tradeId} at ${safeExitPrice}. PnL: ${pnl}. Returned: ${returnAmount}`);
     tradingEvents.emitChange({ action: 'ORDER_CLOSED', tradeId: trade._id.toString(), symbol: trade.symbol, timeframe: trade.timeframe });
     return trade;
   }

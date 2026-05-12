@@ -85,21 +85,35 @@ export class AnalysisController {
       const fibonacci = FibonacciService.runAnalysis(rawIndicators);
       const multiAgent = MultiAgentService.runMultiAgentAnalysis(rawIndicators, stockScore, sentiment.sentiment_score);
 
+      // --- SYNC VERDICT WITH BASURI CONSENSUS ---
+      const bPct = parseFloat(rawIndicators.basuri_stats?.totalBuy || 0);
+      const sPct = parseFloat(rawIndicators.basuri_stats?.totalSell || 0);
+      let syncScore = stockScore.score;
+
+      // If Verdict is BUY but Basuri is weak, cap the confidence
+      if (syncScore >= 70 && bPct < 48) {
+          syncScore = Math.min(syncScore, 60);
+      } 
+      // If Verdict is SELL but Basuri is weak, cap the confidence
+      else if (syncScore <= 40 && sPct < 48) {
+          syncScore = Math.min(syncScore, 60); // Neutralize
+      }
+
       const result = {
         symbol: fullSymbol,
         exchange: String(exchange),
         timeframe: tvTimeframe,
         price_data: yahooPrice,
         technical_analysis: { 
-            summary: { RECOMMENDATION: stockScore.grade === "Elite" ? "STRONG_BUY" : stockScore.grade === "Strong" ? "BUY" : "NEUTRAL" },
+            summary: { RECOMMENDATION: syncScore >= 85 ? "STRONG_BUY" : syncScore >= 70 ? "BUY" : "NEUTRAL" },
             is_local: true
         },
-        stock_score: stockScore,
+        stock_score: { ...stockScore, score: syncScore },
         prediction: {
-            action: stockScore.score >= 70 ? "BUY" : stockScore.score <= 40 ? "SELL" : "NEUTRAL",
-            confidence: `${stockScore.score}%`,
+            action: syncScore >= 70 ? "BUY" : syncScore <= 40 ? "SELL" : "NEUTRAL",
+            confidence: `${syncScore}%`,
             reasoning: stockScore.signals.slice(0, 3).join(", "),
-            intraday_play: stockScore.score >= 80 ? "High Probability Long" : stockScore.score <= 30 ? "High Probability Short" : "Wait for Setup"
+            intraday_play: syncScore >= 80 ? "High Probability Long" : syncScore <= 30 ? "High Probability Short" : "Wait for Setup"
         },
         trade_setup: tradeSetup,
         trade_quality: tradeQuality,

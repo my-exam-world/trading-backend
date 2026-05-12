@@ -4,6 +4,7 @@ import { VolatilityIndicator } from './volatility.js';
 import { VolumeIndicator } from './volume.js';
 import { FibonacciIndicator } from './fibonacci.js';
 import * as MathUtils from '../utils/indicatorMath.js';
+import { calculateBasuri } from '../utils/basuriCore.js';
 
 export const IndicatorRegistry = {
     calculateFromHistory: (history, sentimentScore = 0) => {
@@ -51,7 +52,7 @@ export const IndicatorRegistry = {
         const emaCrosses = MathUtils.calculateEMACrosses(history);
         const utBot = MathUtils.calculateUTBot(history, 2, 1);
         const chand = MathUtils.calculateChandelierExit(history, 22, 3);
-        const basuri = MathUtils.calculateBasuri(history, sentimentScore);
+        const basuri = calculateBasuri(history, sentimentScore);
 
         const indicators = {
             close, high, low, volume,
@@ -77,7 +78,8 @@ export const IndicatorRegistry = {
 
             
             markers: [...emaCrosses, ...gcs.markers, ...utBot.markers, ...chand.markers, ...basuri.markers],
-            gcs_stats: gcs.lastStats
+            gcs_stats: gcs.lastStats,
+            basuri_stats: basuri.lastStats
         };
 
         return indicators;

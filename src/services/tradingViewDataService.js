@@ -44,10 +44,12 @@ export async function getTradingViewHistory(symbol, timeframe = 'D', bars = 5000
       }
     });
 
+    const session = (symbol.startsWith('NSE:') || symbol.startsWith('BSE:')) ? 'regular' : 'extended';
+
     chart.setMarket(symbol, {
       timeframe: timeframe,
       range: bars,
-      session: 'extended',
+      session: session,
     });
 
     chart.onUpdate(() => {
@@ -58,17 +60,18 @@ export async function getTradingViewHistory(symbol, timeframe = 'D', bars = 5000
         console.log(`[DEBUG] Received ${chart.periods.length} periods for ${symbol}`);
 
         try {
+          console.log('[DEBUG] First candle raw data:', JSON.stringify(chart.periods[0]));
           const candles = chart.periods
-            .filter(p => p && p.time && p.open && p.close)
+            .filter(p => p && (p.time || p.t))
             .map(p => ({
               time: timeframe.includes('D') || timeframe.includes('W') || timeframe.includes('M') 
-                ? new Date(p.time * 1000).toISOString().split('T')[0]
-                : p.time,
-              open:   Number(p.open ?? p.op ?? p.close),
-              high:   Number(p.max ?? p.high ?? p.hp ?? p.open ?? p.close),
-              low:    Number(p.min ?? p.low ?? p.lp ?? p.open ?? p.close),
-              close:  Number(p.close ?? p.cp ?? p.open),
-              volume: p.volume || p.v || 0,
+                ? new Date((p.time || p.t) * 1000).toISOString().split('T')[0]
+                : (p.time || p.t),
+              open:   Number(p.open ?? p.op ?? p.close ?? p.c),
+              high:   Number(p.max ?? p.high ?? p.hp ?? p.open ?? p.close ?? p.c),
+              low:    Number(p.min ?? p.low ?? p.lp ?? p.open ?? p.close ?? p.c),
+              close:  Number(p.close ?? p.cp ?? p.c ?? p.open),
+              volume: p.volume ?? p.v ?? 0,
             }))
             .sort((a, b) => (a.time > b.time ? 1 : -1));
 
@@ -102,10 +105,12 @@ export async function streamTradingViewData(symbol, timeframe = 'D', onTick, onE
     try { client.end(); } catch (_) { }
   });
 
+  const session = (symbol.startsWith('NSE:') || symbol.startsWith('BSE:')) ? 'regular' : 'extended';
+
   chart.setMarket(symbol, {
     timeframe: timeframe,
     range: 1, // Only need the most recent bar/tick for streaming
-    session: 'extended',
+    session: session,
   });
 
   chart.onUpdate(() => {
@@ -115,17 +120,17 @@ export async function streamTradingViewData(symbol, timeframe = 'D', onTick, onE
           return (prev && prev.time > current.time) ? prev : current;
         });
 
-        if (latest && latest.time && latest.open && latest.close) {
+        if (latest && (latest.time || latest.t)) {
           const liveTick = {
             symbol: symbol,
             time: timeframe.includes('D') || timeframe.includes('W') || timeframe.includes('M')
-              ? new Date(latest.time * 1000).toISOString().split('T')[0]
-              : latest.time,
-            open:   Number(latest.open ?? latest.op ?? latest.close),
-            high:   Number(latest.max ?? latest.high ?? latest.hp ?? latest.open ?? latest.close),
-            low:    Number(latest.min ?? latest.low ?? latest.lp ?? latest.open ?? latest.close),
-            close:  Number(latest.close ?? latest.cp ?? latest.open),
-            volume: latest.volume || latest.v || 0,
+              ? new Date((latest.time || latest.t) * 1000).toISOString().split('T')[0]
+              : (latest.time || latest.t),
+            open:   Number(latest.open ?? latest.op ?? latest.close ?? latest.c),
+            high:   Number(latest.max ?? latest.high ?? latest.hp ?? latest.open ?? latest.close ?? latest.c),
+            low:    Number(latest.min ?? latest.low ?? latest.lp ?? latest.open ?? latest.close ?? latest.c),
+            close:  Number(latest.close ?? latest.cp ?? latest.c ?? latest.open),
+            volume: latest.volume ?? latest.v ?? 0,
           };
 
           // Highlight the live tick firing in the backend terminal
