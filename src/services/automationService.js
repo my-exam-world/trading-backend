@@ -367,24 +367,11 @@ export class AutomationService {
           const slDistance = atrValue * 1.5;
           const stopLoss = side === 'BUY' ? (currentPrice - slDistance) : (currentPrice + slDistance);
           
-          // Quantity = RiskValue / SLDistance
-          let quantity = riskValue / slDistance;
-          
-          // --- SAFETY CAP: Ensure cost does not exceed available balance ---
-          const maxAllowedCost = balance * 0.10; // Use max 10% of balance per trade (Safe allocation)
-          const maxQuantity = maxAllowedCost / currentPrice;
-          
-          if (quantity > maxQuantity) {
-            console.log(`[CAP] [${symbol}] Quantity ${quantity.toFixed(4)} exceeds 10% allocation. Capping to ${maxQuantity.toFixed(4)}`);
-            quantity = maxQuantity;
-          }
-
-          // Clamp quantity (Minimum 0.1 for crypto, or 1 for stocks)
-          const isStock = symbol.startsWith('NSE:') || symbol.startsWith('BSE:');
-          quantity = isStock ? Math.max(1, Math.floor(quantity)) : Number(quantity.toFixed(4));
+          // --- POSITION SIZING: Fixed 1 Unit as requested ---
+          let quantity = 1;
           
           if (quantity <= 0) {
-            console.warn(`[SKIP] [${symbol}] Quantity is 0 after capping. Skipping.`);
+            console.warn(`[SKIP] [${symbol}] Quantity is 0. Skipping.`);
             return;
           }
 

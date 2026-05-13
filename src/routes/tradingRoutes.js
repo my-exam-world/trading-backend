@@ -57,8 +57,10 @@ router.get('/stream', async (req, res) => {
   const heartbeat = setInterval(() => {
     if (!isClosed) {
       res.write(': keepalive\n\n');
+      // [FALLBACK] Send snapshot every 5s to ensure UI is in sync even if events are missed
+      void sendSnapshot();
     }
-  }, 15000);
+  }, 5000);
 
   tradingEvents.on('changed', handleChange);
   await sendSnapshot();
