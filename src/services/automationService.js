@@ -317,18 +317,20 @@ export class AutomationService {
                 const htfEMAData = calculateEMA(htfCandles, 200);
                 const htfEMA = htfEMAData[htfEMAData.length - 1]?.value;
                 
-                if (htfEMA) {
-                    if (side === 'BUY' && currentPrice < htfEMA) {
-                        console.log(`[FILTERED] [${symbol}] BUY ignored: 15m HTF Trend is Bearish (Price < HTF EMA 200)`);
-                        AutomationState.updateOne({ symbol, timeframe }, { lastSignal: `FILTERED: HTF Trend Bearish` }).catch(() => {});
-                        return;
+                    if (htfEMA) {
+                        const consensusStrength = Math.max(buyPct, sellPct);
+                        const isStrongConsensus = consensusStrength >= 60;
+                        const htfTrend = currentPrice > htfEMA ? 'Bullish' : 'Bearish';
+
+                        if (side === 'BUY' && currentPrice < htfEMA) {
+                            console.log(`[INFO] [${symbol}] BUY Signal | 15m HTF Trend is Bearish (Price < HTF EMA 200). Proceeding anyway.`);
+                            // Removed blocking 'return'
+                        }
+                        if (side === 'SELL' && currentPrice > htfEMA) {
+                            console.log(`[INFO] [${symbol}] SELL Signal | 15m HTF Trend is Bullish (Price > HTF EMA 200). Proceeding anyway.`);
+                            // Removed blocking 'return'
+                        }
                     }
-                    if (side === 'SELL' && currentPrice > htfEMA) {
-                        console.log(`[FILTERED] [${symbol}] SELL ignored: 15m HTF Trend is Bullish (Price > HTF EMA 200)`);
-                        AutomationState.updateOne({ symbol, timeframe }, { lastSignal: `FILTERED: HTF Trend Bullish` }).catch(() => {});
-                        return;
-                    }
-                }
             }
         } catch (htfErr) {
             console.warn(`[AUTOMATION] HTF Guard skipped due to error: ${htfErr.message}`);
@@ -368,9 +370,23 @@ export class AutomationService {
           // Quantity = RiskValue / SLDistance
           let quantity = riskValue / slDistance;
           
+          // --- SAFETY CAP: Ensure cost does not exceed available balance ---
+          const maxAllowedCost = balance * 0.95; // Use max 95% of balance
+          const maxQuantity = maxAllowedCost / currentPrice;
+          
+          if (quantity > maxQuantity) {
+            console.log(`[CAP] [${symbol}] Quantity ${quantity.toFixed(4)} exceeds balance. Capping to ${maxQuantity.toFixed(4)}`);
+            quantity = maxQuantity;
+          }
+
           // Clamp quantity (Minimum 0.1 for crypto, or 1 for stocks)
           const isStock = symbol.startsWith('NSE:') || symbol.startsWith('BSE:');
           quantity = isStock ? Math.max(1, Math.floor(quantity)) : Number(quantity.toFixed(4));
+          
+          if (quantity <= 0) {
+            console.warn(`[SKIP] [${symbol}] Quantity is 0 after capping. Skipping.`);
+            return;
+          }
 
           const tp1Distance = atrValue * 2.0; // Close half at 2x ATR
           const tp2Distance = atrValue * 4.0; // Keep rest for 4x ATR
