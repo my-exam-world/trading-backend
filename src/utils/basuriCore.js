@@ -144,10 +144,10 @@ export function calculateBasuri(d, sentimentScore = 0, lastOnly = false) {
     let position = 0;
     for (let i = 200; i < d.length; i++) {
       const stats = getConsensusAt(i);
-      if (stats.bPct > 50 && position !== 1) {
+      if (stats.bPct > 45 && position !== 1) {
         markers.push({ time: d[i].time, position: 'belowBar', color: '#00D4FF', shape: 'arrowUp', text: `BASURI BUY (${stats.bPct.toFixed(0)}%)`, type: 'BASURI_BUY' });
         position = 1;
-      } else if (stats.sPct > 50 && position !== -1) {
+      } else if (stats.sPct > 45 && position !== -1) {
         markers.push({ time: d[i].time, position: 'aboveBar', color: '#FF00FF', shape: 'arrowDown', text: `BASURI SELL (${stats.sPct.toFixed(0)}%)`, type: 'BASURI_SELL' });
         position = -1;
       } else if (stats.bPct < 45 && stats.sPct < 45) {
