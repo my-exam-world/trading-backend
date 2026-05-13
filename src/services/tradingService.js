@@ -41,8 +41,13 @@ export class TradingService {
       this.getOpenPositions(),
     ]);
 
+    // Equity = Available Cash + Value of open positions
+    const openPositionValue = positions.reduce((acc, p) => acc + (p.entryPrice * p.quantity), 0);
+    const equity = balance + openPositionValue;
+
     return {
-      balance,
+      balance, // Available cash
+      equity,  // Total portfolio value
       trades: tradeData.trades,
       totalTrades: tradeData.total,
       positions,

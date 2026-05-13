@@ -371,11 +371,11 @@ export class AutomationService {
           let quantity = riskValue / slDistance;
           
           // --- SAFETY CAP: Ensure cost does not exceed available balance ---
-          const maxAllowedCost = balance * 0.95; // Use max 95% of balance
+          const maxAllowedCost = balance * 0.10; // Use max 10% of balance per trade (Safe allocation)
           const maxQuantity = maxAllowedCost / currentPrice;
           
           if (quantity > maxQuantity) {
-            console.log(`[CAP] [${symbol}] Quantity ${quantity.toFixed(4)} exceeds balance. Capping to ${maxQuantity.toFixed(4)}`);
+            console.log(`[CAP] [${symbol}] Quantity ${quantity.toFixed(4)} exceeds 10% allocation. Capping to ${maxQuantity.toFixed(4)}`);
             quantity = maxQuantity;
           }
 
